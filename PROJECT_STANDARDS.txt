@@ -1,0 +1,48 @@
+# Project Standards & AI Workflow Instructions
+
+Follow these standards to build high-quality, professional-grade systems engineering tools in C++.
+
+## 1. Project Structure & Organization
+- **Clean Root**: Only `Makefile`, `README.md`, `LICENSE`, and essential setup scripts in the root.
+- **Source Code**: All C++ source in `src/`.
+- **Tests**: All automated tests in `tests/`.
+- **License**: Default to **MIT License** for a balance of professionalism and minimalism.
+
+## 2. Engineering Standards (C++)
+- **Standard**: C++20.
+- **Build System**: Clean Makefile with `-Wall -Wextra -O2`.
+- **Warning-Free**: Silence `warn_unused_result` using dummy variables (e.g., `auto res = system(...); (void)res;`).
+- **Terminal Management**: 
+    - If a child process (like a shell) takes control of the terminal, the parent must save and restore terminal state using `tcgetattr`/`tcsetattr` and `tcsetpgrp`.
+    - Always call `system("stty sane")` or equivalent on exit to prevent terminal hangs.
+
+## 3. UI/UX Standards (The "Management Console")
+- **Branding**: Every tool must have a consistent ASCII Logo and Header displayed in the console.
+- **Layout**: Apply a **2-space left padding** to all console output for a structured look.
+- **Dispatcher Menu**: If the binary is run with no arguments, launch an interactive ANSI-colored menu.
+- **Screen Management**: Use `clear_screen()` (ANSI `\033[2J`) when navigating between menu options.
+- **Stream Separation**:
+    - **UI/Logs**: Send to `stderr` (allows for colors and status messages).
+    - **Data/Command Output**: Send to `stdout` (allows for clean piping and automated testing).
+- **Interactive Logic**: Use `std::getline` for all user input to avoid buffer-hanging issues.
+
+## 4. Documentation Standards
+- **README.md**: Include:
+    - Professional badges (Shields.io) for License, Language, and Platform.
+    - An ASCII art logo matching the console.
+    - A "Developer Workflow" section explaining how to use/import data.
+    - A "Quick Start" guide for the Management Console.
+- **Architecture**: Always include an `ARCHITECTURE.md` explaining the deep technical "why" behind the implementation.
+
+## 5. Quality Assurance (Testing)
+- **Automated Integration Tests**: A `test_<name>.sh` script in `tests/` that verifies behavior (e.g., isolation, output, return codes).
+- **Persistence**: Results should stay on the screen as a single report.
+- **Testable UI**: Ensure the UI elements don't clutter `stdout` so the test script can easily parse results.
+
+## 6. Git Workflow
+- **Conventional Commits**: Use standardized prefixes:
+    - `feat:` for new features.
+    - `fix:` for bug fixes.
+    - `style:` for UI/formatting/visual changes.
+    - `chore:` for cleanup, moving files, or maintenance.
+    - `docs:` for documentation changes.

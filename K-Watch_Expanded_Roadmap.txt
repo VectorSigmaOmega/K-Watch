@@ -1,0 +1,67 @@
+# K-Watch: Expanded Project Roadmap (Portfolio Edition)
+
+The goal of this roadmap is to transition K-Watch from a basic firewall into a high-performance Kernel-Level Threat Intelligence Engine.
+
+## Phase 5: OSI Introspection (Deep Packet Inspection)
+- **Goal:** Move beyond basic protocol counting to real-time packet "DNA" analysis.
+- **Implementation:**
+    - Update the eBPF program to extract MAC addresses (L2), TTL/IP Flags (L3), and TCP Flags (L4).
+    - Implement a BPF Ring Buffer to stream these event structures to user-space.
+- **Visual:** A live "Event Feed" in the dashboard showing the anatomy of each incoming packet.
+
+## Phase 6: Behavioral Threat Detection
+- **Goal:** Automate security decisions based on network patterns.
+- **Implementation:**
+    - Track SYN-vs-ACK ratios per source IP in a Hash Map.
+    - Flag "SYN-Flood" attempts when a threshold of unanswered SYNs is reached.
+    - Feature: "Auto-Mitigation" (Automatically adding attackers to the blacklist map).
+
+## Phase 7: Performance & Health Metrics
+- **Goal:** Provide DevOps-style observability.
+- **Implementation:**
+    - Histogram of packet sizes (Small Control Packets vs. Large Data Payloads).
+    - Interface throughput calculation (PPS - Packets Per Second).
+
+## Phase 8: Layer 7 Heuristics
+- **Goal:** Identify application-layer protocols without full stack processing.
+- **Implementation:**
+    - Sample the first 16-32 bytes of payloads for Port 80/443.
+    - Detect HTTP methods (GET/POST) or TLS Handshakes (SNI) directly in the kernel.
+
+---
+
+# Current Project: How to Run (As Is)
+
+Follow these steps to see the current implementation in action.
+
+### 1. Build the Project
+Ensure all dependencies are met and compile the kernel/user-space code:
+```bash
+make
+```
+
+### 2. Start the Monitor
+Attach K-Watch to your loopback interface. This will open the live dashboard:
+```bash
+sudo ./kwatch lo
+```
+
+### 3. Generate Traffic (Separate Terminal)
+Open a second terminal and ping yourself to see the ICMP counts rise:
+```bash
+ping 127.0.0.1
+```
+
+### 4. Test the Kill-Switch (IP Blacklist)
+In the second terminal, block your own loopback IP:
+```bash
+sudo ./kwatch lo --block 127.0.0.1
+```
+*Note: After running this, the `ping` in your other terminal will stop receiving replies because the kernel is dropping the packets before they reach the ICMP responder.*
+
+### 5. Clean Up
+Press `Ctrl+C` in the K-Watch dashboard to detach the eBPF program and exit.
+To reset everything:
+```bash
+make clean
+```

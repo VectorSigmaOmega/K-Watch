@@ -47,6 +47,7 @@ void print_stats(int fd) {
 int main(int argc, char **argv) {
     struct kwatch_bpf *skel;
     int err;
+    int prog_fd;
     const char *if_name = "lo";
     const char *block_ip = nullptr;
 
@@ -93,22 +94,26 @@ int main(int argc, char **argv) {
         std::cout << "Blocked IP: " << block_ip << std::endl;
     }
 
-    // Attach to XDP with SKB mode (Generic XDP)
-    skel->links.xdp_kwatch_prog = bpf_program__attach_xdp(skel->progs.xdp_kwatch_prog, if_index);
-    // Note: libbpf's attach_xdp doesn't directly take flags in this simple API.
-    // For specific flags, we usually use bpf_xdp_attach(if_index, prog_fd, flags, NULL).
-    // Let's use the more explicit call if we want SKB mode.
+    // 1. Force detach any existing program first to avoid "Device or resource busy"
+    bpf_xdp_detach(if_index, XDP_FLAGS_SKB_MODE, NULL);
+    bpf_xdp_detach(if_index, 0, NULL); // Also try driver mode
+
+    // 2. Attach to XDP with SKB mode (Generic XDP)
+    prog_fd = bpf_program__fd(skel->progs.xdp_kwatch_prog);
     
-    if (!skel->links.xdp_kwatch_prog) {
-        // Fallback or explicit attach
-        int prog_fd = bpf_program__fd(skel->progs.xdp_kwatch_prog);
-        err = bpf_xdp_attach(if_index, prog_fd, XDP_FLAGS_SKB_MODE, NULL);
-        if (err < 0) {
-            std::cerr << "Failed to attach XDP program in SKB mode" << std::endl;
-            goto cleanup;
-        }
-        std::cout << "Attached XDP in SKB mode." << std::endl;
+    // Use XDP_FLAGS_SKB_MODE as it is most compatible with virtual interfaces (lo)
+    err = bpf_xdp_attach(if_index, prog_fd, XDP_FLAGS_SKB_MODE, NULL);
+    if (err < 0) {
+        // Last ditch effort: try without the SKB flag
+        err = bpf_xdp_attach(if_index, prog_fd, 0, NULL);
     }
+
+    if (err < 0) {
+        std::cerr << "Failed to attach XDP program. Try running 'sudo ip link set dev " << if_name << " xdp off' manually." << std::endl;
+        goto cleanup;
+    }
+    
+    std::cout << "Successfully attached XDP program to " << if_name << std::endl;
 
     signal(SIGINT, sig_handler);
     signal(SIGTERM, sig_handler);
