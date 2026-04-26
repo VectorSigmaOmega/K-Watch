@@ -15,14 +15,18 @@ int cmd_demo(const GlobalOptions& globals, const std::vector<std::string>& args)
 
     std::string scenario = args[0];
     demo::DemoConfig cfg;
+    cfg.target_ip = "127.0.0.1"; // Default (R5.17)
+    cfg.target_port = 80;
+    cfg.rate_pps = 100;
+    cfg.duration_s = 5;
     cfg.override_safety = false;
 
     // Very basic parsing for demo options
     for (size_t i = 1; i < args.size(); ++i) {
         if (args[i] == "--target" && i + 1 < args.size()) cfg.target_ip = args[++i];
-        else if (args[i] == "--port" && i + 1 < args.size()) cfg.target_port = (uint16_t)std::stoi(args[++i]);
-        else if (args[i] == "--duration" && i + 1 < args.size()) cfg.duration_s = std::stoi(args[++i]);
-        else if (args[i] == "--rate" && i + 1 < args.size()) cfg.rate_pps = std::stoi(args[++i]);
+        else if (args[i] == "--port" && i + 1 < args.size()) cfg.target_port = static_cast<uint16_t>(std::stoi(args[++i]));
+        else if (args[i] == "--duration" && i + 1 < args.size()) cfg.duration_s = static_cast<uint32_t>(std::stoi(args[++i]));
+        else if (args[i] == "--rate" && i + 1 < args.size()) cfg.rate_pps = static_cast<uint32_t>(std::stoi(args[++i]));
         else if (args[i] == "--i-know-what-im-doing") cfg.override_safety = true;
     }
 

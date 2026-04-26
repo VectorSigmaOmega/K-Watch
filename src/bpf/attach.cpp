@@ -49,20 +49,10 @@ util::Result<void> XdpAttach::attach(struct bpf_program* prog, const std::string
     }
 
     link = l;
-
-    // R3.2: Query kernel for the ACTUAL mode negotiated
-    std::string actual_mode = requested_mode + "/kernel-chosen";
-    int link_fd = bpf_link__fd(l);
-    if (link_fd >= 0) {
-        struct bpf_link_info info = {};
-        uint32_t info_len = sizeof(info);
-        if (bpf_obj_get_info_by_fd(link_fd, &info, &info_len) == 0) {
-            // Note: In older libbpf/kernel, info.xdp.flags might not be present or named differently.
-            // Let's use a simpler check or fallback to requested if we can't determine.
-        }
-    }
-
-    LOG_INFO("bpf", "Successfully attached XDP program in mode: " + actual_mode + " (bpf_link enabled)");
+    
+    // We log the requested mode but acknowledge it's managed by libbpf/kernel best-effort
+    // to ensure we keep the bpf_link (R3.3 safety guarantee).
+    LOG_INFO("bpf", "Successfully attached XDP program (mode=" + requested_mode + ", bpf_link=enabled)");
     return util::Result<void>::Ok();
 }
 

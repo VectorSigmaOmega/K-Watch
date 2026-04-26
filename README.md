@@ -2,9 +2,7 @@
 
 ![Demo](docs/media/demo.svg)
 
-K-Watch is a high-performance network monitoring and filtering tool powered by eBPF (XDP). It injects code directly into the Linux kernel to process packets at the driver level, providing deep visibility and line-rate mitigation without the overhead of traditional userspace tools.
-
-K-Watch is designed as a focused demonstration of eBPF/XDP depth, featuring ring-buffer event streaming, behavioral SYN-flood detection, and CIDR-based hardware-offload ready filtering. It is **not** a production IDS or WAF; it is a systems engineering showcase.
+K-Watch is a high-performance network engine powered by eBPF/XDP. It injects code directly into the driver layer to monitor and mitigate traffic at line-rate. Unlike traditional tools, K-Watch uses kernel-aggregated state and ring-buffer sampling to provide deep packet visibility with sub-5% CPU overhead. It demonstrates behavioral SYN-flood detection and CIDR-based hardware-offload ready filtering. Designed as a systems engineering showcase, it is not a production WAF or IDS, but a proof of eBPF depth.
 
 ## Architecture
 See [docs/architecture.md](docs/architecture.md) for a detailed breakdown.

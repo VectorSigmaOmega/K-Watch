@@ -1,0 +1,11 @@
+{"version": 2, "width": 80, "height": 24, "timestamp": 1777185900, "title": "K-Watch TUI"}
+[0.0, "o", "\u001b[H\u001b[2Jkwatch lo · mode=skb · pps=120 · [1]Dash [2]Threats [3]Firewall [4]Demo [q]Quit\r\n"]
+[1.0, "o", "Threat Matrix (Top Connections)\r\n"]
+[2.0, "o", "--------------------------------------------------------------------------------\r\n"]
+[3.0, "o", "\u001b[31m127.0.0.1        100      0        Linux (64)       SYN_FLOOD       \u001b[0m\r\n"]
+[4.0, "o", "8.8.8.8          10       10       ?                OK              \r\n"]
+[8.0, "o", "\u001b[H\u001b[2Jkwatch lo · mode=skb · pps=120 · [1]Dash [2]Threats [3]Firewall [4]Demo [q]Quit\r\n"]
+[9.0, "o", "Firewall (Blacklist)\r\n"]
+[10.0, "o", "--------------------------------------------------------------------------------\r\n"]
+[11.0, "o", "127.0.0.1/32\r\n"]
+[15.0, "o", "\u001b[1;32m[Exiting]\u001b[0m\r\n"]

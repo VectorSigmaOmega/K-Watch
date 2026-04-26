@@ -43,24 +43,32 @@ jobs:
 
     - name: Integration Tests
       run: |
-        sudo ./tests/integration/attach_detach.sh
+        sudo ./tests/integration/crash_safety.sh
         sudo ./tests/integration/stats_basic.sh
         sudo ./tests/integration/blacklist.sh
         sudo ./tests/integration/lpm_cidr.sh
         sudo ./tests/integration/syn_flood_detection.sh
         sudo ./tests/integration/auto_block.sh
+        sudo ./tests/integration/permission_errors.sh
 
     - name: BPF Instruction Count Check (R2.7)
       run: |
+        # Ensure the program is loadable and measure complexity
+        sudo ./build/kwatch run lo &
+        KPID=$!
+        sleep 2
         sudo bpftool prog dump xlated name xdp_kwatch_prog > bpf_instructions.txt
+        sudo kill $KPID
         COUNT=$(grep -c "^" bpf_instructions.txt)
         echo "Instruction count: $COUNT"
         if [ "$COUNT" -gt 4096 ]; then
           echo "ERROR: BPF program too large ($COUNT > 4096)"
           exit 1
         fi
-      # This requires the program to be loaded. We can do this after one of the tests.
-      continue-on-error: true 
+        if [ "$COUNT" -lt 10 ]; then
+           echo "ERROR: BPF program dump looks empty"
+           exit 1
+        fi
 
     - name: Coverage Report (N4)
       if: matrix.compiler == 'gcc'
