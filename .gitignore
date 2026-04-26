@@ -1,0 +1,15 @@
+build/
+build-*/
+CMakeCache.txt
+CMakeFiles/
+Makefile
+cmake_install.cmake
+compile_commands.json
+kwatch
+kwatch_output.log
+*.o
+*.skel.h
+vmlinux.h
+include/generated/
+.idea/
+.vscode/

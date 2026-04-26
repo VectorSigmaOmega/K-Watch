@@ -1,0 +1,8 @@
+kwatch lo · mode=skb · pps=1240 · uptime=00:05:23 · [1]Dash [2]Threats [3]Firewall [4]Demo [q]Quit
+
+Threat Matrix (Top Connections)
+--------------------------------------------------------------------------------
+Source IP          SYNs  ACKs  Ratio   Heuristic   Status
+10.0.0.5           5200  0     ∞       Linux (64)  SYN_FLOOD (BLOCKED)
+192.168.1.10       10    10    1.0     Win (128)   OK
+10.0.0.2           5     4     1.2     Mac (128)   OK

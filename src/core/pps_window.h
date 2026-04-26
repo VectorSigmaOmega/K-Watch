@@ -1,0 +1,20 @@
+#pragma once
+#include <vector>
+#include <cstdint>
+
+namespace core {
+
+class PpsWindow {
+    std::vector<uint64_t> window;
+    size_t head;
+    size_t count;
+
+public:
+    PpsWindow(size_t size = 60);
+
+    void push(uint64_t pps);
+    std::vector<uint64_t> get_snapshot() const; // Returns oldest to newest
+    uint64_t current_average() const;
+};
+
+} // namespace core

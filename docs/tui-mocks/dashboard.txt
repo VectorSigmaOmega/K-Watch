@@ -1,0 +1,17 @@
+kwatch lo · mode=skb · pps=1240 · uptime=00:05:23 · [1]Dash [2]Threats [3]Firewall [4]Demo [q]Quit
+
+Traffic (PPS)
+  ▂▃▃▂▂▂  ▂▃▅▆▇██▇▆▅▃▂    ▂▃▂   ▂▃▄▅▄▃▂       ▂▃▂   
+
+Protocol Breakdown
+---------------------------------
+TCP     1024 (82%)
+UDP      120 ( 9%)
+ICMP      96 ( 8%)
+Other      0 ( 0%)
+
+Recent Events
+--------------------------------------------------------------------------------
+2026-04-26T12:00:01Z TCP 192.168.1.5:4567 -> 10.0.0.1:80 flags=S ttl=64 action=pass
+2026-04-26T12:00:01Z TCP 192.168.1.5:4568 -> 10.0.0.1:80 flags=S ttl=64 action=pass
+2026-04-26T12:00:02Z ICMP 192.168.1.5 -> 10.0.0.1 type=8 code=0 action=pass

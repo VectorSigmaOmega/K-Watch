@@ -1,0 +1,9 @@
+kwatch lo · mode=skb · pps=1240 · uptime=00:05:23 · [1]Dash [2]Threats [3]Firewall [4]Demo [q]Quit
+
+Firewall (Blacklist)
+--------------------------------------------------------------------------------
+Prefix              Drop Count   Age
+10.0.0.5/32         5200         00:02:10
+192.168.0.0/16      12400        01:15:00
+
+[a] Add IP/CIDR  [d] Delete selected
