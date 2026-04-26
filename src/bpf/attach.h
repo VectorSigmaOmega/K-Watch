@@ -7,17 +7,15 @@ namespace bpf {
 
 class XdpAttach {
     int if_index;
-    struct bpf_link* link = nullptr;
+    int link_fd = -1;
 
 public:
     explicit XdpAttach(int index);
     ~XdpAttach();
 
-    // No copy
     XdpAttach(const XdpAttach&) = delete;
     XdpAttach& operator=(const XdpAttach&) = delete;
 
-    // Move
     XdpAttach(XdpAttach&& other) noexcept;
     XdpAttach& operator=(XdpAttach&& other) noexcept;
 

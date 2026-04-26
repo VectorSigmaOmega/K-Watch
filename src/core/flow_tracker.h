@@ -51,16 +51,22 @@ class FlowTracker {
     std::unordered_map<FlowKey, FlowStats, FlowKeyHash> flows;
     std::unordered_map<uint32_t, IpStats> ip_stats;
 
+    // R3.5: pre-sized scratch buffers reused across ticks; no per-tick allocation.
+    std::vector<uint32_t> block_scratch;
+    std::vector<uint32_t> unblock_scratch;
+
 public:
     FlowTracker(uint32_t threshold, uint32_t window, bool auto_block, uint32_t block_ttl);
 
     void process_event(const kwatch_event& e);
-    
-    // Returns a list of newly flagged IPs that should be auto-blocked
-    std::vector<uint32_t> tick_and_get_blocks(uint64_t now_ns);
-    
-    // Returns a list of IPs that should be unblocked (TTL expired)
-    std::vector<uint32_t> get_expired_blocks(uint64_t now_ns);
+
+    // Returns newly flagged IPs that should be auto-blocked. The returned
+    // reference is valid until the next call to tick_and_get_blocks.
+    const std::vector<uint32_t>& tick_and_get_blocks(uint64_t now_ns);
+
+    // Returns IPs whose auto-block TTL has expired. The returned reference
+    // is valid until the next call to get_expired_blocks.
+    const std::vector<uint32_t>& get_expired_blocks(uint64_t now_ns);
 
     // Returns a snapshot of current flow stats for TUI
     std::unordered_map<uint32_t, IpStats> get_snapshot() const { return ip_stats; }

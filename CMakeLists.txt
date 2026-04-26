@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 3.15)
-project(kwatch CXX C)
+project(kwatch VERSION 1.0.0 LANGUAGES CXX C)
 
 set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
@@ -50,7 +50,7 @@ set(BPF_C ${CMAKE_CURRENT_SOURCE_DIR}/bpf/kwatch.bpf.c)
 set(BPF_O ${GENERATED_DIR}/kwatch.bpf.o)
 add_custom_command(
     OUTPUT ${BPF_O}
-    COMMAND ${CLANG_EXE} -g -O2 -target bpf -D__TARGET_ARCH_x86 -mcpu=v3 -I${GENERATED_DIR} -c ${BPF_C} -o ${BPF_O}
+    COMMAND ${CLANG_EXE} -g -O2 -target bpf -D__TARGET_ARCH_x86 -mcpu=v3 -I${GENERATED_DIR} -I/usr/include/x86_64-linux-gnu -c ${BPF_C} -o ${BPF_O}
     DEPENDS ${BPF_C} ${VMLINUX_H}
     COMMENT "Compiling BPF program"
     VERBATIM
@@ -66,6 +66,15 @@ add_custom_command(
 )
 
 add_custom_target(bpf-obj DEPENDS ${SKEL_H})
+
+# Get Git SHA for version string
+execute_process(
+    COMMAND git rev-parse --short HEAD
+    OUTPUT_VARIABLE GIT_SHA
+    OUTPUT_STRIP_TRAILING_WHITESPACE
+)
+add_definitions(-DGIT_SHA="${GIT_SHA}")
+add_definitions(-DPROJECT_VERSION="${PROJECT_VERSION}")
 
 file(GLOB_RECURSE SOURCES "src/*.cpp")
 # Exclude main from tests

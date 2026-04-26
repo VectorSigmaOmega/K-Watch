@@ -2,7 +2,6 @@ build/
 build-*/
 CMakeCache.txt
 CMakeFiles/
-Makefile
 cmake_install.cmake
 compile_commands.json
 kwatch
@@ -12,4 +11,4 @@ kwatch_output.log
 vmlinux.h
 include/generated/
 .idea/
-.vscode/
+.vscode/kwatch_out.log

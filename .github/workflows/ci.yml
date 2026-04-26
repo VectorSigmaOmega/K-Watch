@@ -5,6 +5,8 @@ on:
     branches: [ "main" ]
   pull_request:
     branches: [ "main" ]
+  schedule:
+    - cron: '0 2 * * *' # Nightly fuzz (R9/M6)
 
 jobs:
   build-and-test:
@@ -24,7 +26,7 @@ jobs:
           linux-tools-common linux-tools-generic linux-tools-$(uname -r) \
           pkg-config cmake clang-tidy clang-format gcovr ncurses-dev
 
-    - name: Check Formatting
+    - name: Check Formatting (N6)
       if: matrix.compiler == 'clang'
       run: |
         find src bpf -name '*.cpp' -o -name '*.c' -o -name '*.h' | xargs clang-format --Werror --dry-run
@@ -53,10 +55,9 @@ jobs:
 
     - name: BPF Instruction Count Check (R2.7)
       run: |
-        # Ensure the program is loadable and measure complexity
         sudo ./build/kwatch run lo &
         KPID=$!
-        sleep 2
+        sleep 5
         sudo bpftool prog dump xlated name xdp_kwatch_prog > bpf_instructions.txt
         sudo kill $KPID
         COUNT=$(grep -c "^" bpf_instructions.txt)
@@ -69,6 +70,10 @@ jobs:
            echo "ERROR: BPF program dump looks empty"
            exit 1
         fi
+
+    - name: Fuzz Smoke Test (60s)
+      if: matrix.compiler == 'clang'
+      run: timeout 60s ./build/kwatch_fuzz_parser || [ $? -eq 124 ]
 
     - name: Coverage Report (N4)
       if: matrix.compiler == 'gcc'
@@ -96,5 +101,9 @@ jobs:
       run: |
         cmake -B build
         cmake --build build
-    - name: Run Unit Tests with Sanitizers
-      run: ./build/kwatch_tests
+    - name: Run Tests with Sanitizers
+      run: |
+        ./build/kwatch_tests
+        sudo ./tests/integration/crash_safety.sh
+        sudo ./tests/integration/stats_basic.sh
+        sudo ./tests/integration/blacklist.sh

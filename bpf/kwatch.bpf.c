@@ -4,76 +4,104 @@
 #include <bpf/bpf_core_read.h>
 #include "kwatch_shared.h"
 
-#define ETH_P_IP 0x0800
-#define ETH_P_IPV6 0x86DD
-#define ETH_P_ARP 0x0806
+// R2.3: Standard EtherTypes
+#define ETH_P_IP    0x0800
+#define ETH_P_IPV6  0x86DD
+#define ETH_P_ARP   0x0806
 #define ETH_P_8021Q 0x8100
+#define ETH_P_8021AD 0x88A8
 
 char LICENSE[] SEC("license") = "GPL";
 
 struct {
-    __uint(type, BPF_MAP_TYPE_HASH);
-    __uint(max_entries, 256);
-    __type(key, uint32_t);   // Protocol (IPPROTO_TCP, ETH_P_ARP, etc. or custom 0xFFFF for drops)
-    __type(value, uint64_t); // Count
-} pkt_counts SEC(".maps");
-
-struct lpm_key {
-    uint32_t prefixlen;
-    uint32_t data;
-};
-
-struct {
     __uint(type, BPF_MAP_TYPE_LPM_TRIE);
     __uint(max_entries, 1024);
-    __type(key, struct lpm_key);
-    __type(value, uint8_t);
+    __type(key, struct { __u32 prefixlen; __u32 data; });
+    __type(value, __u8);
     __uint(map_flags, BPF_F_NO_PREALLOC);
 } blacklist SEC(".maps");
 
 struct {
-    __uint(type, BPF_MAP_TYPE_RINGBUF);
-    __uint(max_entries, 256 * 1024); // 256 KiB
-} events SEC(".maps");
-
-struct flow_key {
-    uint32_t src_ip;
-    uint32_t dst_ip;
-    uint16_t sport;
-    uint16_t dport;
-};
-
-struct flow_val {
-    uint32_t syn_count;
-    uint32_t ack_count;
-    uint64_t first_seen_ns;
-    uint64_t last_seen_ns;
-};
-
-struct {
     __uint(type, BPF_MAP_TYPE_LRU_HASH);
     __uint(max_entries, 65536);
-    __type(key, struct flow_key);
-    __type(value, struct flow_val);
+    __type(key, struct kwatch_flow_key);
+    __type(value, struct kwatch_flow_stats);
 } flow_state SEC(".maps");
+
+struct {
+    __uint(type, BPF_MAP_TYPE_RINGBUF);
+    __uint(max_entries, 256 * 1024);
+} events SEC(".maps");
+
+struct {
+    __uint(type, BPF_MAP_TYPE_HASH);
+    __uint(max_entries, 256);
+    __type(key, __u32);
+    __type(value, __u64);
+} pkt_counts SEC(".maps");
 
 struct {
     __uint(type, BPF_MAP_TYPE_PERCPU_ARRAY);
     __uint(max_entries, 60);
-    __type(key, uint32_t);
-    __type(value, uint64_t);
+    __type(key, __u32);
+    __type(value, __u64);
 } pps_window SEC(".maps");
+
+static __always_inline void inc_count(__u32 proto) {
+    __u64 *cnt = bpf_map_lookup_elem(&pkt_counts, &proto);
+    if (cnt) {
+        __sync_fetch_and_add(cnt, 1);
+    } else {
+        __u64 one = 1;
+        bpf_map_update_elem(&pkt_counts, &proto, &one, BPF_NOEXIST);
+    }
+}
 
 volatile const __u32 sample_n = 100;
 
-static __always_inline void inc_count(uint32_t proto) {
-    uint64_t *count = bpf_map_lookup_elem(&pkt_counts, &proto);
-    if (count) {
-        __sync_fetch_and_add(count, 1);
-    } else {
-        uint64_t init_val = 1;
-        bpf_map_update_elem(&pkt_counts, &proto, &init_val, BPF_ANY);
+// Helper to emit sampled events including the action (pass/drop)
+static __always_inline void emit_event(struct xdp_md *ctx, __u32 src, __u32 dst, __u8 proto, __u8 ttl, __u8 action, bool is_new) {
+    if (!is_new && (bpf_get_prandom_u32() % sample_n != 0)) return;
+
+    struct kwatch_event *e = bpf_ringbuf_reserve(&events, sizeof(*e), 0);
+    if (!e) return;
+
+    e->ts_ns = bpf_ktime_get_ns();
+    e->src_ip = src;
+    e->dst_ip = dst;
+    e->protocol = proto;
+    e->ttl = ttl;
+    e->action = action;
+    e->sport = 0;
+    e->dport = 0;
+    e->tcp_flags = 0;
+
+    void *data_end = (void *)(long)ctx->data_end;
+    void *data = (void *)(long)ctx->data;
+    struct ethhdr *eth = data;
+    void *l3_ptr = (void *)(eth + 1);
+
+    // Re-parse ports and flags for the event
+    struct iphdr *ip = l3_ptr;
+    if ((void *)(ip + 1) <= data_end) {
+        void *l4_ptr = (void *)ip + (ip->ihl * 4);
+        if (proto == IPPROTO_TCP) {
+            struct tcphdr *tcp = l4_ptr;
+            if ((void *)(tcp + 1) <= data_end) {
+                e->sport = bpf_ntohs(tcp->source);
+                e->dport = bpf_ntohs(tcp->dest);
+                e->tcp_flags = ((__u8 *)tcp)[13];
+            }
+        } else if (proto == IPPROTO_UDP) {
+            struct udphdr *udp = l4_ptr;
+            if ((void *)(udp + 1) <= data_end) {
+                e->sport = bpf_ntohs(udp->source);
+                e->dport = bpf_ntohs(udp->dest);
+            }
+        }
     }
+
+    bpf_ringbuf_submit(e, 0);
 }
 
 SEC("xdp")
@@ -84,136 +112,78 @@ int xdp_kwatch_prog(struct xdp_md *ctx) {
     struct ethhdr *eth = data;
     if ((void *)(eth + 1) > data_end) return XDP_PASS;
 
-    uint16_t h_proto = BPF_CORE_READ(eth, h_proto);
-    int hdr_offset = sizeof(struct ethhdr);
-
-    if (h_proto == bpf_htons(ETH_P_8021Q)) {
-        struct vlan_hdr *vlan = data + hdr_offset;
+    __u16 eth_type = bpf_ntohs(eth->h_proto);
+    void *l3_ptr = (void *)(eth + 1);
+    
+    if (eth_type == ETH_P_8021Q || eth_type == ETH_P_8021AD) {
+        struct vlan_hdr *vlan = l3_ptr;
         if ((void *)(vlan + 1) > data_end) return XDP_PASS;
-        h_proto = BPF_CORE_READ(vlan, h_vlan_encapsulated_proto);
-        hdr_offset += sizeof(struct vlan_hdr);
+        eth_type = bpf_ntohs(vlan->h_vlan_encapsulated_proto);
+        l3_ptr = (void *)(vlan + 1);
     }
 
-    if (h_proto == bpf_htons(ETH_P_ARP)) {
-        inc_count(ETH_P_ARP);
+    if (eth_type != ETH_P_IP) {
+        if (eth_type == ETH_P_IPV6) inc_count(0x86DD);
+        else if (eth_type == ETH_P_ARP) inc_count(0x0806);
         return XDP_PASS;
     }
 
-    if (h_proto == bpf_htons(ETH_P_IPV6)) {
-        inc_count(ETH_P_IPV6);
-        return XDP_PASS;
-    }
-
-    if (h_proto != bpf_htons(ETH_P_IP)) {
-        return XDP_PASS;
-    }
-
-    struct iphdr *ip = data + hdr_offset;
+    struct iphdr *ip = l3_ptr;
     if ((void *)(ip + 1) > data_end) return XDP_PASS;
 
-    uint32_t src_ip = BPF_CORE_READ(ip, saddr);
-    uint32_t dst_ip = BPF_CORE_READ(ip, daddr);
-    uint8_t protocol = BPF_CORE_READ(ip, protocol);
-    uint8_t ttl = BPF_CORE_READ(ip, ttl);
+    __u8 proto = ip->protocol;
+    __u32 src_ip = ip->saddr;
+    __u32 dst_ip = ip->daddr;
 
-    uint8_t version_ihl = 0;
-    bpf_probe_read_kernel(&version_ihl, 1, ip);
-    uint8_t ihl = version_ihl & 0x0F;
-    hdr_offset += (ihl * 4);
-    if (hdr_offset < sizeof(struct ethhdr) + sizeof(struct iphdr)) return XDP_PASS;
-
-    inc_count(protocol);
-
-    struct lpm_key b_key = {};
-    b_key.prefixlen = 32;
-    b_key.data = src_ip;
-    
-    uint8_t action = 0; // PASS
-    if (bpf_map_lookup_elem(&blacklist, &b_key)) {
-        action = 1; // DROP
-        inc_count(0xFFFF); // Count drops globally
+    // Blacklist check (R2.5)
+    struct { __u32 prefixlen; __u32 data; } key = {32, src_ip};
+    if (bpf_map_lookup_elem(&blacklist, &key)) {
+        inc_count(0xFFFF); 
+        emit_event(ctx, src_ip, dst_ip, proto, ip->ttl, 1, true); // always emit drops
+        return XDP_DROP;
     }
 
-    uint16_t sport = 0, dport = 0;
-    uint8_t tcp_flags = 0;
+    inc_count(proto);
 
-    if (protocol == 6) { // TCP
-        struct tcphdr *tcp = data + hdr_offset;
+    struct kwatch_flow_key fkey = {0};
+    fkey.src_ip = src_ip;
+    fkey.dst_ip = dst_ip;
+    fkey.protocol = proto;
+
+    __u8 tcp_flags = 0;
+    if (proto == IPPROTO_TCP) {
+        struct tcphdr *tcp = (void *)ip + (ip->ihl * 4);
         if ((void *)(tcp + 1) <= data_end) {
-            sport = BPF_CORE_READ(tcp, source);
-            dport = BPF_CORE_READ(tcp, dest);
-            
-            uint8_t *flags_ptr = ((uint8_t *)tcp) + 13;
-            if ((void *)(flags_ptr + 1) <= data_end) {
-                bpf_probe_read_kernel(&tcp_flags, 1, flags_ptr);
-            }
+            fkey.sport = bpf_ntohs(tcp->source);
+            fkey.dport = bpf_ntohs(tcp->dest);
+            tcp_flags = ((__u8 *)tcp)[13];
         }
-    } else if (protocol == 17) { // UDP
-        struct udphdr *udp = data + hdr_offset;
+    } else if (proto == IPPROTO_UDP) {
+        struct udphdr *udp = (void *)ip + (ip->ihl * 4);
         if ((void *)(udp + 1) <= data_end) {
-            sport = BPF_CORE_READ(udp, source);
-            dport = BPF_CORE_READ(udp, dest);
-        }
-    } else if (protocol == 1) { // ICMP
-        struct icmphdr *icmp = data + hdr_offset;
-        if ((void *)(icmp + 1) <= data_end) {
-            uint8_t type = BPF_CORE_READ(icmp, type);
-            uint8_t code = BPF_CORE_READ(icmp, code);
-            sport = ((uint16_t)type << 8) | code;
+            fkey.sport = bpf_ntohs(udp->source);
+            fkey.dport = bpf_ntohs(udp->dest);
         }
     }
 
-    struct flow_key f_key = {
-        .src_ip = src_ip,
-        .dst_ip = dst_ip,
-        .sport = sport,
-        .dport = dport
-    };
-
-    struct flow_val *f_val = bpf_map_lookup_elem(&flow_state, &f_key);
-    bool is_new_flow = false;
-
-    uint64_t now = bpf_ktime_get_ns();
-
-    if (!f_val) {
-        is_new_flow = true;
-        struct flow_val new_val = {0};
-        new_val.first_seen_ns = now;
-        new_val.last_seen_ns = now;
-        if (protocol == 6 && (tcp_flags & 0x02)) { // SYN
-            new_val.syn_count = 1;
-        }
-        bpf_map_update_elem(&flow_state, &f_key, &new_val, BPF_ANY);
+    struct kwatch_flow_stats *stats = bpf_map_lookup_elem(&flow_state, &fkey);
+    bool is_new = false;
+    if (!stats) {
+        struct kwatch_flow_stats new_stats = {0};
+        new_stats.first_seen_ns = bpf_ktime_get_ns();
+        new_stats.last_seen_ns = new_stats.first_seen_ns;
+        if (tcp_flags & 0x02) new_stats.syn_count = 1;
+        if (tcp_flags & 0x10) new_stats.ack_count = 1;
+        bpf_map_update_elem(&flow_state, &fkey, &new_stats, BPF_NOEXIST);
+        is_new = true;
     } else {
-        f_val->last_seen_ns = now;
-        if (protocol == 6) {
-            if (tcp_flags & 0x02) __sync_fetch_and_add(&f_val->syn_count, 1);
-            if (tcp_flags & 0x10) __sync_fetch_and_add(&f_val->ack_count, 1);
-        }
+        stats->last_seen_ns = bpf_ktime_get_ns();
+        // R4.1: per-flow SYN/ACK accounting in the flow_state map.
+        if (tcp_flags & 0x02) __sync_fetch_and_add(&stats->syn_count, 1);
+        if (tcp_flags & 0x10) __sync_fetch_and_add(&stats->ack_count, 1);
     }
 
-    bool should_emit = is_new_flow;
-    if (!should_emit) {
-        if (bpf_get_prandom_u32() % sample_n == 0) {
-            should_emit = true;
-        }
-    }
+    emit_event(ctx, src_ip, dst_ip, proto, ip->ttl, 0, is_new);
 
-    if (should_emit) {
-        struct kwatch_event *e = bpf_ringbuf_reserve(&events, sizeof(*e), 0);
-        if (e) {
-            e->ts_ns = now;
-            e->src_ip = src_ip;
-            e->dst_ip = dst_ip;
-            e->sport = sport;
-            e->dport = dport;
-            e->protocol = protocol;
-            e->tcp_flags = tcp_flags;
-            e->ttl = ttl;
-            e->action = action;
-            bpf_ringbuf_submit(e, 0);
-        }
-    }
-
-    return action == 1 ? XDP_DROP : XDP_PASS;
+    return XDP_PASS;
 }

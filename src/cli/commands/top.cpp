@@ -130,8 +130,8 @@ int cmd_top(const GlobalOptions& globals, const std::vector<std::string>& args) 
                 // Flow tracker re-blocking/expiry
                 uint64_t now_ns = std::chrono::duration_cast<std::chrono::nanoseconds>(
                     std::chrono::steady_clock::now().time_since_epoch()).count();
-                auto to_block = tracker.tick_and_get_blocks(now_ns);
-                auto to_unblock = tracker.get_expired_blocks(now_ns);
+                const auto& to_block = tracker.tick_and_get_blocks(now_ns);
+                const auto& to_unblock = tracker.get_expired_blocks(now_ns);
 
                 for (uint32_t ip : to_block) {
                     struct { uint32_t p; uint32_t d; } lpm = {32, ip};

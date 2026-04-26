@@ -25,13 +25,25 @@ void print_help(const std::string& bin_name, Command cmd) {
                   << "  demo    <scenario>               Run a built-in traffic scenario\n"
                   << "  detach  <iface>                  Force-detach any XDP program on <iface>\n";
     } else {
-        std::cerr << "Subcommand help not yet implemented fully.\n";
+        switch(cmd) {
+            case Command::Run: std::cerr << "Usage: " << bin_name << " run <iface>\n  Attach XDP program to interface and stream events.\n"; break;
+            case Command::Top: std::cerr << "Usage: " << bin_name << " top <iface>\n  Launch interactive ncurses dashboard.\n"; break;
+            case Command::Block: std::cerr << "Usage: " << bin_name << " block <iface> <ip/cidr>...\n  Add IP or CIDR range to the blacklist map.\n"; break;
+            case Command::Demo: std::cerr << "Usage: " << bin_name << " demo <scenario> [--target <ip>] [--rate <pps>]\n  Scenarios: syn-flood, ping-flood, udp-storm\n"; break;
+            default: std::cerr << "Use " << bin_name << " --help to see available commands.\n"; break;
+        }
     }
 }
 
 void print_version() {
-    // R1.3: kwatch <semver> (<git-sha>) libbpf=<version>
-    std::cout << "kwatch 1.0.0 (f06c1a2) libbpf=" 
+    // R1.3: GIT_SHA and PROJECT_VERSION injected via CMake
+#ifndef PROJECT_VERSION
+#define PROJECT_VERSION "0.0.0"
+#endif
+#ifndef GIT_SHA
+#define GIT_SHA "unknown"
+#endif
+    std::cout << "kwatch " << PROJECT_VERSION << " (" << GIT_SHA << ") libbpf=" 
               << libbpf_major_version() << "." << libbpf_minor_version() << "\n";
 }
 
@@ -68,12 +80,23 @@ util::Result<ParsedCommand> parse_args(int argc, char** argv) {
             if (i + 1 < argc) p.globals.auto_block_ttl = static_cast<uint32_t>(std::stoul(argv[++i]));
             else return util::Result<ParsedCommand>::Err("--auto-block-ttl requires an argument");
         } else if (arg == "--help" || arg == "-h") {
-            print_help(argv[0]);
+            // Check for subcommand help
+            Command sub = Command::None;
+            if (i + 1 < argc) {
+                std::string s = argv[i+1];
+                if (s == "run") sub = Command::Run;
+                else if (s == "top") sub = Command::Top;
+                else if (s == "block") sub = Command::Block;
+                else if (s == "demo") sub = Command::Demo;
+            }
+            print_help(argv[0], sub);
             exit(0);
         } else if (arg == "--version") {
             print_version();
             exit(0);
         } else if (!arg.empty() && arg[0] == '-') {
+            // R1.2: Support --help for subcommand
+            if (arg == "--help" || arg == "-h") { print_help(argv[0]); exit(0); }
             return util::Result<ParsedCommand>::Err("Unknown global option: " + arg);
         } else {
             if (arg == "run") p.cmd = Command::Run;

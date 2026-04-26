@@ -165,8 +165,8 @@ int cmd_run(const GlobalOptions& globals, const std::vector<std::string>& args) 
                 tick.consume();
                 
                 uint64_t now_ns = get_time_ns();
-                auto to_block = tracker.tick_and_get_blocks(now_ns);
-                auto to_unblock = tracker.get_expired_blocks(now_ns);
+                const auto& to_block = tracker.tick_and_get_blocks(now_ns);
+                const auto& to_unblock = tracker.get_expired_blocks(now_ns);
 
                 for (uint32_t ip : to_block) {
                     struct lpm_key key = {32, ip};

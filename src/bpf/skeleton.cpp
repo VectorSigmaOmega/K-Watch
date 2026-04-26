@@ -6,12 +6,14 @@
 #include <cstring>
 #include <string>
 #include <cstdarg>
+#include <sys/stat.h>
+#include <unistd.h>
 
 namespace bpf {
 
 static std::string libbpf_err_buf;
 static int capture_libbpf_log(enum libbpf_print_level level, const char *format, va_list args) {
-    if (level == LIBBPF_WARN || level == LIBBPF_DEBUG) { // DEBUG often contains the specific field info
+    if (level == LIBBPF_WARN || level == LIBBPF_DEBUG) {
         char buf[1024];
         vsnprintf(buf, sizeof(buf), format, args);
         libbpf_err_buf += buf;
@@ -69,13 +71,21 @@ util::Result<std::unique_ptr<Skeleton>> Skeleton::open_and_load() {
     return util::Result<std::unique_ptr<Skeleton>>::Ok(std::unique_ptr<Skeleton>(new Skeleton(s)));
 }
 
-#include <sys/stat.h>
-#include <unistd.h>
-
 util::Result<void> Skeleton::pin(const std::string& path) {
     if (!skel) return util::Result<void>::Err("Skeleton is null");
     
-    mkdir(path.c_str(), 0755); 
+    if (mkdir(path.c_str(), 0755) != 0) {
+        if (errno != EEXIST) {
+            LOG_ERROR("bpf", "Failed to create pin directory " + path + ": " + std::string(strerror(errno)));
+            return util::Result<void>::Err("mkdir failed");
+        }
+        struct stat st;
+        if (stat(path.c_str(), &st) != 0 || !S_ISDIR(st.st_mode)) {
+            LOG_ERROR("bpf", "Pin path " + path + " exists but is not a directory");
+            return util::Result<void>::Err("pin path is not a directory");
+        }
+    }
+
     bpf_object__unpin_maps(skel->obj, path.c_str()); 
     
     int err = bpf_object__pin_maps(skel->obj, path.c_str());
