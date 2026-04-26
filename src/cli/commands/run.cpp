@@ -9,12 +9,13 @@
 #include "../../core/tick.h"
 #include "../../core/flow_tracker.h"
 #include <net/if.h>
-#include <iostream>
+#include <cstdio>
+#include <cerrno>
 #include <sys/epoll.h>
 #include <unistd.h>
 #include <bpf/bpf.h>
 #include <chrono>
-#include <iomanip>
+#include <ctime>
 
 namespace cli {
 
@@ -26,9 +27,11 @@ struct lpm_key {
 static std::string get_rfc3339_time() {
     auto now = std::chrono::system_clock::now();
     auto in_time_t = std::chrono::system_clock::to_time_t(now);
-    std::stringstream ss;
-    ss << std::put_time(std::gmtime(&in_time_t), "%Y-%m-%dT%H:%M:%SZ");
-    return ss.str();
+    char buf[32];
+    std::tm tm_buf{};
+    gmtime_r(&in_time_t, &tm_buf);
+    std::strftime(buf, sizeof(buf), "%Y-%m-%dT%H:%M:%SZ", &tm_buf);
+    return std::string(buf);
 }
 
 static std::string format_tcp_flags(uint8_t flags) {
@@ -42,12 +45,12 @@ static std::string format_tcp_flags(uint8_t flags) {
     return s;
 }
 
-static std::string get_proto_name(uint8_t p) {
+static const char* get_proto_name(uint8_t p) {
     switch (p) {
         case 1: return "ICMP";
         case 6: return "TCP";
         case 17: return "UDP";
-        default: return std::to_string(p);
+        default: return "OTHER";
     }
 }
 
@@ -59,7 +62,7 @@ static uint64_t get_time_ns() {
 
 int cmd_run(const GlobalOptions& globals, const std::vector<std::string>& args) {
     if (args.empty()) {
-        std::cerr << "Usage: kwatch run <iface>\n";
+        std::fputs("Usage: kwatch run <iface> [--json]\n", stderr);
         return 64;
     }
     std::string if_name = args[0];
@@ -70,30 +73,43 @@ int cmd_run(const GlobalOptions& globals, const std::vector<std::string>& args) 
         return 65; // EX_DATAERR
     }
 
-    auto skel_res = bpf::Skeleton::open_and_load();
+    int load_err = 0;
+    auto skel_res = bpf::Skeleton::open_and_load(&load_err);
     if (!skel_res.is_ok()) {
-        // R3.8 Check for permission errors
-        if (errno == EPERM) {
-            LOG_ERROR("bpf", "Permission denied. Need CAP_BPF, CAP_NET_ADMIN, or root.");
+        // R3.8: distinguish permission errors from other kernel-feature failures.
+        if (load_err == EPERM || load_err == EACCES) {
+            LOG_ERROR("bpf", "Permission denied loading BPF program. Need CAP_BPF + CAP_NET_ADMIN, or run as root.");
             return 77;
         }
-        return 69; // Kernel/BPF issue
+        if (load_err == ENOTSUP || load_err == EOPNOTSUPP || load_err == ENOENT) {
+            LOG_ERROR("bpf", "Kernel feature unavailable (missing BTF or XDP support).");
+            return 69;
+        }
+        return 69;
     }
     auto skel = std::move(skel_res.value());
 
     std::string pin_path = "/sys/fs/bpf/kwatch_" + if_name;
-    skel->pin(pin_path); // Ignore failure if already exists
+    skel->pin(pin_path);
 
-    bpf::XdpAttach attach(if_index);
-    if (!attach.attach(skel->get()->progs.xdp_kwatch_prog, globals.xdp_mode).is_ok()) {
-        return 77; 
+    bpf::XdpAttach attach(static_cast<int>(if_index));
+    int attach_err = 0;
+    auto attach_res = attach.attach(skel->get()->progs.xdp_kwatch_prog, globals.xdp_mode, &attach_err);
+    if (!attach_res.is_ok()) {
+        if (attach_err == EPERM || attach_err == EACCES) {
+            LOG_ERROR("bpf", "Permission denied attaching XDP. Need CAP_NET_ADMIN.");
+            return 77;
+        }
+        LOG_ERROR("bpf", attach_res.error());
+        return 69;
     }
+    LOG_INFO("run", "Attached XDP on " + if_name + " (mode=" + attach_res.value() + ")");
 
     util::SignalHandler sigs;
     if (!sigs.init().is_ok()) return 125;
 
     core::TickTimer tick;
-    if (!tick.init(2).is_ok()) return 125; // 2 Hz loop
+    if (!tick.init(2).is_ok()) return 125; // 2 Hz
 
     core::FlowTracker tracker(globals.syn_threshold, globals.syn_window, globals.auto_block, globals.auto_block_ttl);
 
@@ -103,26 +119,29 @@ int cmd_run(const GlobalOptions& globals, const std::vector<std::string>& args) 
 
         std::string src = util::ipv4::format(e.src_ip);
         std::string dst = util::ipv4::format(e.dst_ip);
-        std::string proto = get_proto_name(e.protocol);
+        const char* proto = get_proto_name(e.protocol);
 
         if (globals.json) {
-            std::cout << "{\"ts_ns\":" << e.ts_ns 
-                      << ",\"src_ip\":\"" << src << "\""
-                      << ",\"dst_ip\":\"" << dst << "\""
-                      << ",\"sport\":" << e.sport 
-                      << ",\"dport\":" << e.dport 
-                      << ",\"protocol\":" << (int)e.protocol 
-                      << ",\"tcp_flags\":" << (int)e.tcp_flags 
-                      << ",\"ttl\":" << (int)e.ttl 
-                      << ",\"action\":\"" << (e.action == 1 ? "drop" : "pass") << "\"}\n";
+            std::fprintf(stdout,
+                "{\"ts\":\"%s\",\"ts_ns\":%llu,\"src_ip\":\"%s\",\"dst_ip\":\"%s\","
+                "\"sport\":%u,\"dport\":%u,\"protocol\":%u,\"tcp_flags\":%u,"
+                "\"ttl\":%u,\"action\":\"%s\"}\n",
+                get_rfc3339_time().c_str(),
+                (unsigned long long)e.ts_ns,
+                src.c_str(), dst.c_str(),
+                (unsigned)e.sport, (unsigned)e.dport,
+                (unsigned)e.protocol, (unsigned)e.tcp_flags,
+                (unsigned)e.ttl,
+                e.action == 1 ? "drop" : "pass");
         } else {
-            std::cout << get_rfc3339_time() << " " << proto << " " 
-                      << src << ":" << e.sport << " -> " 
-                      << dst << ":" << e.dport 
-                      << " flags=" << format_tcp_flags(e.tcp_flags) 
-                      << " ttl=" << (int)e.ttl << "\n";
+            std::fprintf(stdout, "%s %s %s:%u -> %s:%u flags=%s ttl=%u\n",
+                get_rfc3339_time().c_str(), proto,
+                src.c_str(), (unsigned)e.sport,
+                dst.c_str(), (unsigned)e.dport,
+                format_tcp_flags(e.tcp_flags).c_str(),
+                (unsigned)e.ttl);
         }
-        std::cout.flush();
+        std::fflush(stdout);
     };
 
     if (!ringbuf.init(bpf_map__fd(skel->get()->maps.events), rb_cb).is_ok()) {
@@ -135,7 +154,7 @@ int cmd_run(const GlobalOptions& globals, const std::vector<std::string>& args) 
     struct epoll_event ev_sig = { EPOLLIN, { .fd = sigs.get_fd() } };
     struct epoll_event ev_tick = { EPOLLIN, { .fd = tick.get_fd() } };
     struct epoll_event ev_rb = { EPOLLIN, { .fd = ringbuf.get_fd() } };
-    
+
     epoll_ctl(epoll_fd, EPOLL_CTL_ADD, sigs.get_fd(), &ev_sig);
     epoll_ctl(epoll_fd, EPOLL_CTL_ADD, tick.get_fd(), &ev_tick);
     epoll_ctl(epoll_fd, EPOLL_CTL_ADD, ringbuf.get_fd(), &ev_rb);
@@ -163,7 +182,7 @@ int cmd_run(const GlobalOptions& globals, const std::vector<std::string>& args) 
                 ringbuf.consume();
             } else if (ep_events[i].data.fd == tick.get_fd()) {
                 tick.consume();
-                
+
                 uint64_t now_ns = get_time_ns();
                 const auto& to_block = tracker.tick_and_get_blocks(now_ns);
                 const auto& to_unblock = tracker.get_expired_blocks(now_ns);

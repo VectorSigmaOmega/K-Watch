@@ -1,13 +1,16 @@
 #include "parser.h"
 #include "../log/log.h"
-#include <iostream>
+#include <cstdio>
 
 using namespace cli;
 
 int main(int argc, char** argv) {
     auto res = parse_args(argc, argv);
     if (!res.is_ok()) {
-        std::cerr << "Error: " << res.error() << "\n\n";
+        // R1.1: no args / bad args → help to stderr, exit 64.
+        if (argc >= 2) {
+            std::fprintf(stderr, "kwatch: %s\n\n", res.error().c_str());
+        }
         print_help(argv[0]);
         return 64; // EX_USAGE
     }

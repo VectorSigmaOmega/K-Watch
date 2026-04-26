@@ -24,7 +24,7 @@ jobs:
         sudo apt-get update
         sudo apt-get install -y clang llvm libbpf-dev libelf-dev zlib1g-dev \
           linux-tools-common linux-tools-generic linux-tools-$(uname -r) \
-          pkg-config cmake clang-tidy clang-format gcovr ncurses-dev
+          pkg-config cmake clang-tidy clang-format gcovr ncurses-dev jq
 
     - name: Check Formatting (N6)
       if: matrix.compiler == 'clang'
@@ -55,20 +55,28 @@ jobs:
 
     - name: BPF Instruction Count Check (R2.7)
       run: |
-        sudo ./build/kwatch run lo &
+        sudo ./build/kwatch run lo > /dev/null 2>&1 &
         KPID=$!
-        sleep 5
-        sudo bpftool prog dump xlated name xdp_kwatch_prog > bpf_instructions.txt
-        sudo kill $KPID
-        COUNT=$(grep -c "^" bpf_instructions.txt)
-        echo "Instruction count: $COUNT"
+        sleep 3
+        # bytes_xlated is reported as the size of the xlated BPF instruction
+        # stream in bytes; divide by 8 (every BPF instruction is 8 bytes) to
+        # get instruction count. PRD R2.7 caps at 4096.
+        BYTES=$(sudo bpftool prog show name xdp_kwatch_prog -j | jq '.[0].bytes_xlated')
+        sudo kill $KPID || true
+        wait $KPID 2>/dev/null || true
+        if [ -z "$BYTES" ] || [ "$BYTES" = "null" ]; then
+          echo "ERROR: could not read bytes_xlated for xdp_kwatch_prog"
+          exit 1
+        fi
+        COUNT=$((BYTES / 8))
+        echo "BPF instruction count: $COUNT (bytes_xlated=$BYTES)"
         if [ "$COUNT" -gt 4096 ]; then
           echo "ERROR: BPF program too large ($COUNT > 4096)"
           exit 1
         fi
         if [ "$COUNT" -lt 10 ]; then
-           echo "ERROR: BPF program dump looks empty"
-           exit 1
+          echo "ERROR: BPF program looks empty"
+          exit 1
         fi
 
     - name: Fuzz Smoke Test (60s)

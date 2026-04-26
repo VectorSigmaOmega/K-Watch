@@ -19,7 +19,9 @@ public:
     XdpAttach(XdpAttach&& other) noexcept;
     XdpAttach& operator=(XdpAttach&& other) noexcept;
 
-    util::Result<void> attach(struct bpf_program* prog, const std::string& mode);
+    // Returns the mode that actually attached ("drv" / "skb" / "generic" / "hw").
+    // err_out receives positive errno on failure.
+    util::Result<std::string> attach(struct bpf_program* prog, const std::string& mode, int* err_out = nullptr);
     void detach();
 };
 

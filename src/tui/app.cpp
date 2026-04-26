@@ -39,12 +39,21 @@ static std::string format_tcp_flags(uint8_t flags) {
     return s;
 }
 
+static const char* get_os_from_ttl(uint8_t ttl) {
+    if (ttl == 64) return "Linux";
+    if (ttl == 128) return "Windows";
+    if (ttl == 255) return "BSD";
+    return "?";
+}
+
 App::App(const std::string& i, const std::string& m, 
          const core::PpsWindow& pps_win, std::vector<kwatch_event>& events,
          std::mutex& mtx, const core::FlowTracker& tracker,
+         std::function<uint64_t()> dropped_cb,
          int pkt_fd, int bl_fd)
     : iface(i), mode(m), pps_window(pps_win), recent_events(events), 
-      events_mutex(mtx), flow_tracker(tracker), pkt_counts_fd(pkt_fd), blacklist_fd(bl_fd) {}
+      events_mutex(mtx), flow_tracker(tracker), get_dropped_count(dropped_cb),
+      pkt_counts_fd(pkt_fd), blacklist_fd(bl_fd) {}
 
 App::~App() {
     running = false;
@@ -80,6 +89,17 @@ util::Result<void> App::init() {
     return util::Result<void>::Ok();
 }
 
+static std::string prompt_input(const char* prompt) {
+    echo();
+    curs_set(1);
+    mvprintw(LINES - 1, 0, "%s", prompt);
+    char buf[256];
+    getstr(buf);
+    noecho();
+    curs_set(0);
+    return std::string(buf);
+}
+
 void App::handle_input() {
     int ch = getch();
     if (ch == 'q' || ch == 'Q') running = false;
@@ -87,7 +107,32 @@ void App::handle_input() {
     else if (ch == '2') current_view = View::Threats;
     else if (ch == '3') current_view = View::Firewall;
     else if (ch == '4') current_view = View::Demos;
-    else if (current_view == View::Demos) {
+    else if (current_view == View::Firewall) {
+        if (ch == KEY_UP && firewall_selected_index > 0) firewall_selected_index--;
+        else if (ch == KEY_DOWN) firewall_selected_index++;
+        else if (ch == 'a' || ch == 'A') {
+            std::string input = prompt_input("Add IP/CIDR: ");
+            auto res = util::ipv4::parse_cidr(input);
+            if (res.is_ok()) {
+                struct lpm_key key = {res.value().second, res.value().first};
+                uint8_t val = 1;
+                bpf_map_update_elem(blacklist_fd, &key, &val, BPF_ANY);
+            }
+        } else if (ch == 'd' || ch == 'D') {
+            // Delete selected IP
+            struct lpm_key start_key = {0, 0};
+            struct lpm_key next_key;
+            int current = 0;
+            while (bpf_map_get_next_key(blacklist_fd, &start_key, &next_key) == 0) {
+                if (current == firewall_selected_index) {
+                    bpf_map_delete_elem(blacklist_fd, &next_key);
+                    break;
+                }
+                current++;
+                start_key = next_key;
+            }
+        }
+    } else if (current_view == View::Demos) {
         if (ch == 's' || ch == 'S') launch_demo("syn-flood");
         else if (ch == 'p' || ch == 'P') launch_demo("ping-flood");
         else if (ch == 'u' || ch == 'U') launch_demo("udp-storm");
@@ -118,9 +163,11 @@ void App::render() {
 
     auto pps_snapshot = pps_window.get_snapshot();
 
+    uint64_t dropped = get_dropped_count ? get_dropped_count() : 0;
+
     if (has_colors() && (std::getenv("NO_COLOR") == nullptr)) attron(COLOR_PAIR(1) | A_BOLD);
-    mvprintw(0, 0, "kwatch %s · mode=%s · pps=%lu · [1]Dash [2]Threats [3]Firewall [4]Demo [q]Quit", 
-             iface.c_str(), mode.c_str(), pps_snapshot.empty() ? 0 : pps_snapshot.back());
+    mvprintw(0, 0, "kwatch %s · mode=%s · pps=%lu · drops=%lu · [1]Dash [2]Threats [3]Firewall [4]Demo [q]Quit", 
+             iface.c_str(), mode.c_str(), pps_snapshot.empty() ? 0 : pps_snapshot.back(), dropped);
     if (has_colors() && (std::getenv("NO_COLOR") == nullptr)) attroff(COLOR_PAIR(1) | A_BOLD);
 
     switch (current_view) {
@@ -152,27 +199,34 @@ void App::render() {
                 if (flagged && has_colors() && (std::getenv("NO_COLOR") == nullptr)) attron(COLOR_PAIR(3));
                 mvprintw(line++, 0, "%-16s %-8u %-8u %-16s %-16s", 
                          util::ipv4::format(ip).c_str(), stats.syn_count, stats.ack_count, 
-                         "?", 
+                         get_os_from_ttl(stats.last_ttl), 
                          flagged ? "SYN_FLOOD" : "OK");
                 if (flagged && has_colors() && (std::getenv("NO_COLOR") == nullptr)) attroff(COLOR_PAIR(3));
             }
             break;
         }
         case View::Firewall: {
-            mvprintw(2, 0, "Firewall (Blacklist)");
+            mvprintw(2, 0, "Firewall (Blacklist) · [UP/DOWN] Select · [a] Add · [d] Delete");
             mvprintw(3, 0, "--------------------------------------------------------------------------------");
-            mvprintw(4, 0, "Prefix");
+            mvprintw(4, 0, "  Prefix");
             struct lpm_key start_key = {0, 0};
             struct lpm_key next_key;
             uint8_t value;
             int line = 5;
+            int current = 0;
             while (bpf_map_get_next_key(blacklist_fd, &start_key, &next_key) == 0) {
-                if (line >= max_y - 1) break;
+                if (line >= max_y - 2) break;
                 if (bpf_map_lookup_elem(blacklist_fd, &next_key, &value) == 0) {
-                    mvprintw(line++, 0, "%s/%u", util::ipv4::format(next_key.data).c_str(), next_key.prefixlen);
+                    if (current == firewall_selected_index) attron(A_REVERSE);
+                    mvprintw(line++, 0, "%c %s/%u", 
+                             (current == firewall_selected_index ? '>' : ' '),
+                             util::ipv4::format(next_key.data).c_str(), next_key.prefixlen);
+                    if (current == firewall_selected_index) attroff(A_REVERSE);
+                    current++;
                 }
                 start_key = next_key;
             }
+            if (firewall_selected_index >= current && current > 0) firewall_selected_index = current - 1;
             break;
         }
         case View::Demos:

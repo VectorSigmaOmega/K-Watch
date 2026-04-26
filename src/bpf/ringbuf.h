@@ -21,6 +21,10 @@ public:
     util::Result<void> init(int map_fd, Callback cb);
     int get_fd() const;
     void consume();
+    uint64_t get_dropped_count() const { return dropped_count; }
+
+private:
+    uint64_t dropped_count = 0;
 };
 
 } // namespace bpf

@@ -1,7 +1,8 @@
 #include "../parser.h"
+#include "../../log/log.h"
 #include "../../util/ipv4.h"
 #include "../../util/fd.h"
-#include <iostream>
+#include <cstdio>
 #include <bpf/bpf.h>
 #include <bpf/libbpf.h>
 #include <unistd.h>
@@ -17,7 +18,7 @@ static int get_blacklist_fd(const std::string& if_name) {
     std::string map_path = "/sys/fs/bpf/kwatch_" + if_name + "/blacklist";
     int fd = bpf_obj_get(map_path.c_str());
     if (fd < 0) {
-        std::cerr << "Failed to open map at " << map_path << " (is kwatch running on " << if_name << "?)\n";
+        LOG_ERROR("list", "Failed to open map at " + map_path + " (is kwatch running on " + if_name + "?)");
     }
     return fd;
 }
@@ -25,7 +26,7 @@ static int get_blacklist_fd(const std::string& if_name) {
 int cmd_list(const GlobalOptions& globals, const std::vector<std::string>& args) {
     (void)globals;
     if (args.empty()) {
-        std::cerr << "Usage: kwatch list <iface>\n";
+        std::fputs("Usage: kwatch list <iface>\n", stderr);
         return 64;
     }
     std::string if_name = args[0];
@@ -38,7 +39,9 @@ int cmd_list(const GlobalOptions& globals, const std::vector<std::string>& args)
 
     while (bpf_map_get_next_key(fd, &key, &next_key) == 0) {
         if (bpf_map_lookup_elem(fd, &next_key, &value) == 0) {
-            std::cout << util::ipv4::format(next_key.data) << "/" << next_key.prefixlen << "\n";
+            std::fprintf(stdout, "%s/%u\n",
+                         util::ipv4::format(next_key.data).c_str(),
+                         next_key.prefixlen);
         }
         key = next_key;
     }

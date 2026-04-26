@@ -21,7 +21,10 @@ public:
     Skeleton(Skeleton&& other) noexcept;
     Skeleton& operator=(Skeleton&& other) noexcept;
 
-    static util::Result<std::unique_ptr<Skeleton>> open_and_load();
+    // err_out (if non-null) receives the positive errno from the failing
+    // libbpf call, or 0 on success. Lets callers distinguish EPERM from
+    // other failures (R3.8) without sniffing a stale global errno.
+    static util::Result<std::unique_ptr<Skeleton>> open_and_load(int* err_out = nullptr);
 
     util::Result<void> pin(const std::string& path);
     void unpin(const std::string& path);

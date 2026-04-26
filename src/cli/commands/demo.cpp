@@ -1,15 +1,15 @@
 #include "../parser.h"
 #include "../../demo/demos.h"
 #include "../../log/log.h"
-#include <iostream>
+#include <cstdio>
 
 namespace cli {
 
 int cmd_demo(const GlobalOptions& globals, const std::vector<std::string>& args) {
     (void)globals;
     if (args.empty()) {
-        std::cerr << "Usage: kwatch demo <scenario> [OPTIONS]\n"
-                  << "Scenarios: syn-flood, ping-flood, udp-storm\n";
+        std::fputs("Usage: kwatch demo <scenario> [OPTIONS]\n"
+                   "Scenarios: syn-flood, ping-flood, udp-storm\n", stderr);
         return 64;
     }
 
@@ -35,16 +35,16 @@ int cmd_demo(const GlobalOptions& globals, const std::vector<std::string>& args)
     else if (scenario == "ping-flood") res = demo::run_ping_flood(cfg);
     else if (scenario == "udp-storm") res = demo::run_udp_storm(cfg);
     else {
-        std::cerr << "Unknown scenario: " << scenario << "\n";
+        LOG_ERROR("demo", "Unknown scenario: " + scenario);
         return 64;
     }
 
     if (!res.is_ok()) {
-        std::cerr << "Demo failed: " << res.error() << "\n";
+        LOG_ERROR("demo", "Demo failed: " + res.error());
         return 125;
     }
 
-    std::cout << "Demo '" << scenario << "' finished successfully.\n";
+    LOG_INFO("demo", "Scenario '" + scenario + "' finished successfully");
     return 0;
 }
 

@@ -1,7 +1,8 @@
 #include "../parser.h"
+#include "../../log/log.h"
 #include "../../util/ipv4.h"
 #include "../../util/fd.h"
-#include <iostream>
+#include <cstdio>
 #include <bpf/bpf.h>
 #include <bpf/libbpf.h>
 #include <unistd.h>
@@ -17,7 +18,7 @@ static int get_blacklist_fd(const std::string& if_name) {
     std::string map_path = "/sys/fs/bpf/kwatch_" + if_name + "/blacklist";
     int fd = bpf_obj_get(map_path.c_str());
     if (fd < 0) {
-        std::cerr << "Failed to open map at " << map_path << " (is kwatch running on " << if_name << "?)\n";
+        LOG_ERROR("block", "Failed to open map at " + map_path + " (is kwatch running on " + if_name + "?)");
     }
     return fd;
 }
@@ -25,7 +26,7 @@ static int get_blacklist_fd(const std::string& if_name) {
 int cmd_block(const GlobalOptions& globals, const std::vector<std::string>& args) {
     (void)globals;
     if (args.size() < 2) {
-        std::cerr << "Usage: kwatch block <iface> <ip/cidr> [<ip>...]\n";
+        std::fputs("Usage: kwatch block <iface> <ip/cidr> [<ip>...]\n", stderr);
         return 64;
     }
     std::string if_name = args[0];
@@ -36,7 +37,7 @@ int cmd_block(const GlobalOptions& globals, const std::vector<std::string>& args
     for (size_t i = 1; i < args.size(); ++i) {
         auto res = util::ipv4::parse_cidr(args[i]);
         if (!res.is_ok()) {
-            std::cerr << "Failed to parse: " << args[i] << " - " << res.error() << "\n";
+            LOG_ERROR("block", "Failed to parse '" + args[i] + "': " + res.error());
             all_ok = false;
             continue;
         }
@@ -47,10 +48,10 @@ int cmd_block(const GlobalOptions& globals, const std::vector<std::string>& args
         uint8_t val = 1;
 
         if (bpf_map_update_elem(fd, &key, &val, BPF_ANY) != 0) {
-            std::cerr << "Failed to add " << args[i] << " to blacklist map.\n";
+            LOG_ERROR("block", "Failed to add " + args[i] + " to blacklist map");
             all_ok = false;
         } else {
-            std::cerr << "Blocked: " << args[i] << "\n";
+            LOG_INFO("block", "Blocked: " + args[i]);
         }
     }
 

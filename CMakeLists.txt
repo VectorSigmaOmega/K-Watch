@@ -11,23 +11,26 @@ pkg_check_modules(LIBBPF REQUIRED libbpf)
 pkg_check_modules(LIBELF REQUIRED libelf)
 pkg_check_modules(ZLIB REQUIRED zlib)
 
-# Find bpftool (prioritize actual binary over WSL-failing wrapper)
-file(GLOB BPFTOOL_FALLBACK "/usr/lib/linux-tools/*/bpftool")
-if(BPFTOOL_FALLBACK)
-    list(GET BPFTOOL_FALLBACK 0 BPFTOOL_PATH)
-else()
-    execute_process(
-        COMMAND pkg-config --variable=bpftool libbpf
-        OUTPUT_VARIABLE BPFTOOL_PATH
-        OUTPUT_STRIP_TRAILING_WHITESPACE
-    )
-    if(NOT BPFTOOL_PATH OR NOT EXISTS "${BPFTOOL_PATH}")
-        find_program(BPFTOOL_PATH bpftool)
+# R3.7: discover bpftool via pkg-config → which → distro-versioned fallback.
+execute_process(
+    COMMAND pkg-config --variable=bpftool libbpf
+    OUTPUT_VARIABLE BPFTOOL_PATH
+    OUTPUT_STRIP_TRAILING_WHITESPACE
+)
+if(NOT BPFTOOL_PATH OR NOT EXISTS "${BPFTOOL_PATH}")
+    find_program(BPFTOOL_PATH bpftool)
+endif()
+if(NOT BPFTOOL_PATH OR NOT EXISTS "${BPFTOOL_PATH}")
+    # Some distros (e.g. Ubuntu) ship bpftool only under linux-tools-<ver>/.
+    file(GLOB BPFTOOL_FALLBACK "/usr/lib/linux-tools/*/bpftool")
+    if(BPFTOOL_FALLBACK)
+        list(GET BPFTOOL_FALLBACK 0 BPFTOOL_PATH)
     endif()
 endif()
 if(NOT BPFTOOL_PATH OR NOT EXISTS "${BPFTOOL_PATH}")
-    message(FATAL_ERROR "bpftool not found. Please install linux-tools-common or bpftool.")
+    message(FATAL_ERROR "bpftool not found. Install linux-tools-common, bpftool, or set PATH.")
 endif()
+message(STATUS "Using bpftool: ${BPFTOOL_PATH}")
 
 # Find clang for bpf compilation
 find_program(CLANG_EXE clang)

@@ -1,11 +1,7 @@
 #pragma once
 
 #ifdef __cplusplus
-#include <cstdint>
 extern "C" {
-// When included in C++, we use the types that libbpf/linux already defines 
-// if they are available, otherwise we'd need to be very careful.
-// Let's use the actual names that vmlinux.h and libbpf use.
 #endif
 
 // Shared event structure for the ring buffer

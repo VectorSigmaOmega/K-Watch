@@ -43,13 +43,16 @@ Skeleton& Skeleton::operator=(Skeleton&& other) noexcept {
     return *this;
 }
 
-util::Result<std::unique_ptr<Skeleton>> Skeleton::open_and_load() {
+util::Result<std::unique_ptr<Skeleton>> Skeleton::open_and_load(int* err_out) {
+    if (err_out) *err_out = 0;
     libbpf_err_buf.clear();
     libbpf_set_print(capture_libbpf_log);
 
     struct kwatch_bpf* s = kwatch_bpf__open();
     if (!s) {
-        std::string err = "Failed to open BPF skeleton: " + std::string(strerror(errno));
+        int e = errno ? errno : EIO;
+        if (err_out) *err_out = e;
+        std::string err = "Failed to open BPF skeleton: " + std::string(strerror(e));
         LOG_ERROR("bpf", err);
         libbpf_set_print(NULL);
         return util::Result<std::unique_ptr<Skeleton>>::Err("open failed");
@@ -57,7 +60,11 @@ util::Result<std::unique_ptr<Skeleton>> Skeleton::open_and_load() {
 
     int err = kwatch_bpf__load(s);
     if (err) {
-        std::string msg = "Failed to load BPF skeleton: " + std::string(strerror(-err));
+        // libbpf returns negative errno; translate into a positive errno.
+        int e = -err;
+        if (e <= 0) e = EIO;
+        if (err_out) *err_out = e;
+        std::string msg = "Failed to load BPF skeleton: " + std::string(strerror(e));
         if (!libbpf_err_buf.empty()) {
             msg += " Details: " + libbpf_err_buf;
         }

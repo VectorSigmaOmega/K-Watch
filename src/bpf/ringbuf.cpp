@@ -41,7 +41,10 @@ int RingBuf::get_fd() const {
 
 void RingBuf::consume() {
     if (rb) {
-        ring_buffer__poll(rb, 0); // 0 timeout, non-blocking
+        int err = ring_buffer__poll(rb, 0); // 0 timeout, non-blocking
+        if (err < 0 && err != -EINTR) {
+            dropped_count++;
+        }
     }
 }
 

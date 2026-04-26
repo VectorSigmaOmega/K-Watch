@@ -2,7 +2,7 @@
 #include "../../log/log.h"
 #include <bpf/libbpf.h>
 #include <net/if.h>
-#include <iostream>
+#include <cstdio>
 
 #ifndef XDP_FLAGS_SKB_MODE
 #define XDP_FLAGS_SKB_MODE (1U << 1)
@@ -19,23 +19,22 @@ namespace cli {
 int cmd_detach(const GlobalOptions& globals, const std::vector<std::string>& args) {
     (void)globals;
     if (args.empty()) {
-        std::cerr << "Usage: kwatch detach <iface>\n";
+        std::fputs("Usage: kwatch detach <iface>\n", stderr);
         return 64;
     }
     std::string if_name = args[0];
     unsigned int if_index = if_nametoindex(if_name.c_str());
     if (if_index == 0) {
-        std::cerr << "Failed to get index for interface " << if_name << "\n";
+        LOG_ERROR("detach", "Failed to get index for interface " + if_name);
         return 65;
     }
 
-    // Attempt to detach in all modes, idempotently.
     bpf_xdp_detach(if_index, XDP_FLAGS_HW_MODE, NULL);
     bpf_xdp_detach(if_index, XDP_FLAGS_DRV_MODE, NULL);
     bpf_xdp_detach(if_index, XDP_FLAGS_SKB_MODE, NULL);
     bpf_xdp_detach(if_index, 0, NULL);
 
-    std::cout << "Successfully detached any XDP program from " << if_name << ".\n";
+    LOG_INFO("detach", "Detached any XDP program from " + if_name);
     return 0;
 }
 

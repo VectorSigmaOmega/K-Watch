@@ -11,7 +11,8 @@
 #include "../../core/pps_window.h"
 #include "../../tui/app.h"
 #include <net/if.h>
-#include <iostream>
+#include <cstdio>
+#include <cerrno>
 #include <sys/epoll.h>
 #include <unistd.h>
 #include <bpf/bpf.h>
@@ -22,7 +23,7 @@ namespace cli {
 
 int cmd_top(const GlobalOptions& globals, const std::vector<std::string>& args) {
     if (args.empty()) {
-        std::cerr << "Usage: kwatch top <iface>\n";
+        std::fputs("Usage: kwatch top <iface>\n", stderr);
         return 64;
     }
     std::string if_name = args[0];
@@ -33,17 +34,32 @@ int cmd_top(const GlobalOptions& globals, const std::vector<std::string>& args) 
         return 65;
     }
 
-    auto skel_res = bpf::Skeleton::open_and_load();
-    if (!skel_res.is_ok()) return 69;
+    int load_err = 0;
+    auto skel_res = bpf::Skeleton::open_and_load(&load_err);
+    if (!skel_res.is_ok()) {
+        if (load_err == EPERM || load_err == EACCES) {
+            LOG_ERROR("bpf", "Permission denied loading BPF program. Need CAP_BPF + CAP_NET_ADMIN, or run as root.");
+            return 77;
+        }
+        return 69;
+    }
     auto skel = std::move(skel_res.value());
 
     std::string pin_path = "/sys/fs/bpf/kwatch_" + if_name;
     (void)skel->pin(pin_path);
 
-    bpf::XdpAttach attach(if_index);
-    if (!attach.attach(skel->get()->progs.xdp_kwatch_prog, globals.xdp_mode).is_ok()) {
-        return 77;
+    bpf::XdpAttach attach(static_cast<int>(if_index));
+    int attach_err = 0;
+    auto attach_res = attach.attach(skel->get()->progs.xdp_kwatch_prog, globals.xdp_mode, &attach_err);
+    if (!attach_res.is_ok()) {
+        if (attach_err == EPERM || attach_err == EACCES) {
+            LOG_ERROR("bpf", "Permission denied attaching XDP. Need CAP_NET_ADMIN.");
+            return 77;
+        }
+        LOG_ERROR("bpf", attach_res.error());
+        return 69;
     }
+    std::string actual_mode = attach_res.value();
 
     util::SignalHandler sigs;
     if (!sigs.init().is_ok()) return 125;
@@ -53,7 +69,7 @@ int cmd_top(const GlobalOptions& globals, const std::vector<std::string>& args) 
 
     core::FlowTracker tracker(globals.syn_threshold, globals.syn_window, globals.auto_block, globals.auto_block_ttl);
     core::PpsWindow pps_win(60);
-    
+
     std::vector<kwatch_event> recent_events;
     std::mutex events_mutex;
 
@@ -69,10 +85,9 @@ int cmd_top(const GlobalOptions& globals, const std::vector<std::string>& args) 
         return 125;
     }
 
-    // Determine actual mode for display (R3.2 logic)
-    // For now we pass the requested one, but we should query.
-    tui::App app(if_name, globals.xdp_mode, pps_win, recent_events, events_mutex, tracker,
-                 bpf_map__fd(skel->get()->maps.pkt_counts), 
+    tui::App app(if_name, actual_mode, pps_win, recent_events, events_mutex, tracker,
+                 [&ringbuf]() { return ringbuf.get_dropped_count(); },
+                 bpf_map__fd(skel->get()->maps.pkt_counts),
                  bpf_map__fd(skel->get()->maps.blacklist));
     if (!app.init().is_ok()) return 125;
 
@@ -82,7 +97,7 @@ int cmd_top(const GlobalOptions& globals, const std::vector<std::string>& args) 
     struct epoll_event ev_sig = { EPOLLIN, { .fd = sigs.get_fd() } };
     struct epoll_event ev_tick = { EPOLLIN, { .fd = tick.get_fd() } };
     struct epoll_event ev_rb = { EPOLLIN, { .fd = ringbuf.get_fd() } };
-    
+
     epoll_ctl(epoll_fd, EPOLL_CTL_ADD, sigs.get_fd(), &ev_sig);
     epoll_ctl(epoll_fd, EPOLL_CTL_ADD, tick.get_fd(), &ev_tick);
     epoll_ctl(epoll_fd, EPOLL_CTL_ADD, ringbuf.get_fd(), &ev_rb);
@@ -91,26 +106,28 @@ int cmd_top(const GlobalOptions& globals, const std::vector<std::string>& args) 
     bool running = true;
     int blacklist_fd = bpf_map__fd(skel->get()->maps.blacklist);
 
-    while (running && app.is_running()) {
-        app.handle_input();
-        app.render();
+    // R5.3: render only on tick (2 Hz). Keystrokes are polled at the same rate.
+    app.render();
 
+    while (running && app.is_running()) {
         struct epoll_event ep_events[3];
-        int n = epoll_wait(epoll_fd, ep_events, 3, 100); 
+        int n = epoll_wait(epoll_fd, ep_events, 3, -1);
         if (n < 0 && errno == EINTR) continue;
+        if (n < 0) break;
 
         for (int i = 0; i < n; i++) {
             if (ep_events[i].data.fd == sigs.get_fd()) {
                 int sig = sigs.read_signal();
-                if (sig == SIGINT || sig == SIGTERM) {
-                    running = false;
-                    break;
-                }
+                if (sig == SIGINT || sig == SIGTERM) { running = false; break; }
             } else if (ep_events[i].data.fd == ringbuf.get_fd()) {
                 ringbuf.consume();
             } else if (ep_events[i].data.fd == tick.get_fd()) {
                 tick.consume();
-                
+
+                // Drain any pending keypresses since the last tick.
+                app.handle_input();
+
+                // Sample pkt_counts to derive PPS.
                 uint64_t current_total = 0;
                 uint32_t key = 0, next_key;
                 uint64_t val;
@@ -121,13 +138,11 @@ int cmd_top(const GlobalOptions& globals, const std::vector<std::string>& args) 
                     }
                     key = next_key;
                 }
-                
                 if (last_pkt_total > 0) {
-                    pps_win.push((current_total - last_pkt_total) * 2); 
+                    pps_win.push((current_total - last_pkt_total) * 2); // delta over 500ms × 2 = pps
                 }
                 last_pkt_total = current_total;
 
-                // Flow tracker re-blocking/expiry
                 uint64_t now_ns = std::chrono::duration_cast<std::chrono::nanoseconds>(
                     std::chrono::steady_clock::now().time_since_epoch()).count();
                 const auto& to_block = tracker.tick_and_get_blocks(now_ns);
@@ -142,6 +157,8 @@ int cmd_top(const GlobalOptions& globals, const std::vector<std::string>& args) 
                     struct { uint32_t p; uint32_t d; } lpm = {32, ip};
                     bpf_map_delete_elem(blacklist_fd, &lpm);
                 }
+
+                app.render();
             }
         }
     }

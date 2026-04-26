@@ -40,6 +40,7 @@ struct IpStats {
     uint64_t block_start_ns = 0;
     bool is_flagged = false;
     bool is_blocked = false;
+    uint8_t last_ttl = 0; // R5.7: track TTL for OS heuristic
 };
 
 class FlowTracker {
@@ -51,9 +52,15 @@ class FlowTracker {
     std::unordered_map<FlowKey, FlowStats, FlowKeyHash> flows;
     std::unordered_map<uint32_t, IpStats> ip_stats;
 
+    static constexpr size_t kMaxFlows = 65536;
+    static constexpr size_t kMaxIpStats = 16384;
+    static constexpr uint64_t kFlowIdleTtlNs = 60ULL * 1000000000ULL; // 60s
+
     // R3.5: pre-sized scratch buffers reused across ticks; no per-tick allocation.
     std::vector<uint32_t> block_scratch;
     std::vector<uint32_t> unblock_scratch;
+
+    void evict_idle(uint64_t now_ns);
 
 public:
     FlowTracker(uint32_t threshold, uint32_t window, bool auto_block, uint32_t block_ttl);
@@ -69,7 +76,7 @@ public:
     const std::vector<uint32_t>& get_expired_blocks(uint64_t now_ns);
 
     // Returns a snapshot of current flow stats for TUI
-    std::unordered_map<uint32_t, IpStats> get_snapshot() const { return ip_stats; }
+    const std::unordered_map<uint32_t, IpStats>& get_snapshot() const { return ip_stats; }
 };
 
 } // namespace core

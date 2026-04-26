@@ -39,20 +39,27 @@ void XdpAttach::detach() {
     }
 }
 
-util::Result<void> XdpAttach::attach(struct bpf_program* prog, const std::string& requested_mode) {
+util::Result<std::string> XdpAttach::attach(struct bpf_program* prog, const std::string& requested_mode, int* err_out) {
+    if (err_out) *err_out = 0;
     detach();
 
     int prog_fd = bpf_program__fd(prog);
     if (prog_fd < 0) {
-        return util::Result<void>::Err("Invalid BPF program fd");
+        if (err_out) *err_out = EINVAL;
+        return util::Result<std::string>::Err("Invalid BPF program fd");
     }
 
+    std::string used_mode;
+    int last_err = 0;
     auto try_mode = [&](__u32 flags, const char* name) -> int {
         LIBBPF_OPTS(bpf_link_create_opts, opts);
         opts.flags = flags;
         int fd = bpf_link_create(prog_fd, if_index, BPF_XDP, &opts);
         if (fd >= 0) {
+            used_mode = name;
             LOG_INFO("bpf", std::string("XDP attached mode=") + name);
+        } else {
+            last_err = -fd;
         }
         return fd;
     };
@@ -65,18 +72,18 @@ util::Result<void> XdpAttach::attach(struct bpf_program* prog, const std::string
     } else if (requested_mode == "hw") {
         fd = try_mode(XDP_FLAGS_HW_MODE, "hw");
     } else {
-        // R3.2 auto: try drv → skb → unspecified
         fd = try_mode(XDP_FLAGS_DRV_MODE, "drv");
         if (fd < 0) fd = try_mode(XDP_FLAGS_SKB_MODE, "skb");
         if (fd < 0) fd = try_mode(0, "generic");
     }
 
     if (fd < 0) {
-        return util::Result<void>::Err("Failed to attach XDP in mode=" + requested_mode);
+        if (err_out) *err_out = last_err;
+        return util::Result<std::string>::Err("Failed to attach XDP in mode=" + requested_mode + ": " + std::string(strerror(last_err)));
     }
 
     link_fd = fd;
-    return util::Result<void>::Ok();
+    return util::Result<std::string>::Ok(used_mode);
 }
 
 } // namespace bpf
