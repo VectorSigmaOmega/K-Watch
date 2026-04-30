@@ -1,23 +1,21 @@
 #include "signals.h"
-#include <unistd.h>
-#include <sys/signalfd.h>
-#include <signal.h>
-#include <iostream>
 #include <cstring>
+#include <iostream>
+#include <signal.h>
+#include <sys/signalfd.h>
+#include <unistd.h>
 
 namespace util {
-
-/**
- * SIGSEGV/SIGABRT are handled by default to allow process termination.
- * bpf_link (R3.3) provides the kernel-level guarantee that the XDP program 
- * is detached when the userspace file descriptor is closed by the OS.
- */
 
 Result<void> SignalHandler::init() {
     sigset_t mask;
     sigemptyset(&mask);
     sigaddset(&mask, SIGINT);
     sigaddset(&mask, SIGTERM);
+    sigaddset(&mask, SIGSEGV);
+    sigaddset(&mask, SIGABRT);
+    sigaddset(&mask, SIGILL);
+    sigaddset(&mask, SIGFPE);
 
     if (sigprocmask(SIG_BLOCK, &mask, NULL) == -1) {
         return Result<void>::Err("sigprocmask failed");
@@ -38,10 +36,10 @@ int SignalHandler::read_signal() {
     if (s != sizeof(fdsi)) {
         return -1;
     }
-    return fdsi.ssi_signo;
+    return static_cast<int>(fdsi.ssi_signo);
 }
 
-void SignalHandler::set_emergency_iface(const std::string& iface, int ifindex) {
+void SignalHandler::set_emergency_iface(const std::string &iface, int ifindex) {
     (void)iface;
     (void)ifindex;
 }

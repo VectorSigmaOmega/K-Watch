@@ -1,14 +1,12 @@
 #pragma once
+#include "../util/result.h"
+#include <cstdint>
 #include <string>
 #include <vector>
-#include <cstdint>
-#include "../util/result.h"
 
 namespace cli {
 
-enum class Command {
-    None, Run, Top, Block, Unblock, List, Stats, Demo, Detach
-};
+enum class Command : uint8_t { None, Run, Top, Block, Unblock, List, Stats, Demo, Detach };
 
 struct GlobalOptions {
     bool json = false;
@@ -18,6 +16,7 @@ struct GlobalOptions {
     uint32_t syn_window = 10;
     bool auto_block = false;
     uint32_t auto_block_ttl = 300;
+    uint32_t sample_n = 100;
 };
 
 struct ParsedCommand {
@@ -26,17 +25,17 @@ struct ParsedCommand {
     std::vector<std::string> args;
 };
 
-util::Result<ParsedCommand> parse_args(int argc, char** argv);
-void print_help(const std::string& bin_name, Command cmd = Command::None);
+util::Result<ParsedCommand> parse_args(int argc, char **argv);
+void print_help(const std::string &bin_name, Command cmd = Command::None);
 void print_version();
 
-int cmd_run(const GlobalOptions& globals, const std::vector<std::string>& args);
-int cmd_top(const GlobalOptions& globals, const std::vector<std::string>& args);
-int cmd_block(const GlobalOptions& globals, const std::vector<std::string>& args);
-int cmd_unblock(const GlobalOptions& globals, const std::vector<std::string>& args);
-int cmd_list(const GlobalOptions& globals, const std::vector<std::string>& args);
-int cmd_stats(const GlobalOptions& globals, const std::vector<std::string>& args);
-int cmd_demo(const GlobalOptions& globals, const std::vector<std::string>& args);
-int cmd_detach(const GlobalOptions& globals, const std::vector<std::string>& args);
+int cmd_run(const GlobalOptions &globals, const std::vector<std::string> &args);
+int cmd_top(const GlobalOptions &globals, const std::vector<std::string> &args);
+int cmd_block(const GlobalOptions &globals, const std::vector<std::string> &args);
+int cmd_unblock(const GlobalOptions &globals, const std::vector<std::string> &args);
+int cmd_list(const GlobalOptions &globals, const std::vector<std::string> &args);
+int cmd_stats(const GlobalOptions &globals, const std::vector<std::string> &args);
+int cmd_demo(const GlobalOptions &globals, const std::vector<std::string> &args);
+int cmd_detach(const GlobalOptions &globals, const std::vector<std::string> &args);
 
 } // namespace cli

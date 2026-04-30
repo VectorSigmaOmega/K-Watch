@@ -1,24 +1,17 @@
 #include <stdint.h>
 #include <stddef.h>
-#include <string.h>
-#include "../../bpf/kwatch_shared.h"
+#include <span>
 
-// We don't have a standalone "parser" function yet, it's inline in rb_cb.
-// Let's define a mock handle_event for fuzzing the struct interpretation.
+#include "../../src/core/event_formatter.h"
 
 extern "C" int LLVMFuzzerTestOneInput(const uint8_t *data, size_t size) {
-    if (size < sizeof(kwatch_event)) {
-        return 0;
+    const auto format = (size > 0 && (data[0] & 1U) != 0U)
+        ? core::EventOutputFormat::Json
+        : core::EventOutputFormat::Text;
+    auto rendered = core::parse_and_format_event(
+        std::span<const uint8_t>(data, size), format, "2026-01-01T00:00:00Z");
+    if (rendered.is_ok()) {
+        (void)rendered.value().size();
     }
-
-    struct kwatch_event e;
-    memcpy(&e, data, sizeof(e));
-
-    // Exercise some logic that uses the event fields
-    if (e.protocol == 6) {
-        // TCP logic
-        (void)(e.tcp_flags & 0x02);
-    }
-    
     return 0;
 }

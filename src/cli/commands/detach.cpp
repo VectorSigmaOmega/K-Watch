@@ -1,8 +1,8 @@
-#include "../parser.h"
 #include "../../log/log.h"
+#include "../parser.h"
 #include <bpf/libbpf.h>
-#include <net/if.h>
 #include <cstdio>
+#include <net/if.h>
 
 #ifndef XDP_FLAGS_SKB_MODE
 #define XDP_FLAGS_SKB_MODE (1U << 1)
@@ -16,18 +16,19 @@
 
 namespace cli {
 
-int cmd_detach(const GlobalOptions& globals, const std::vector<std::string>& args) {
+int cmd_detach(const GlobalOptions &globals, const std::vector<std::string> &args) {
     (void)globals;
-    if (args.empty()) {
+    if (args.size() != 1) {
         std::fputs("Usage: kwatch detach <iface>\n", stderr);
         return 64;
     }
     std::string if_name = args[0];
-    unsigned int if_index = if_nametoindex(if_name.c_str());
-    if (if_index == 0) {
+    unsigned int raw_if_index = if_nametoindex(if_name.c_str());
+    if (raw_if_index == 0) {
         LOG_ERROR("detach", "Failed to get index for interface " + if_name);
         return 65;
     }
+    int if_index = static_cast<int>(raw_if_index);
 
     bpf_xdp_detach(if_index, XDP_FLAGS_HW_MODE, NULL);
     bpf_xdp_detach(if_index, XDP_FLAGS_DRV_MODE, NULL);

@@ -50,11 +50,12 @@ add_custom_command(
 )
 
 set(BPF_C ${CMAKE_CURRENT_SOURCE_DIR}/bpf/kwatch.bpf.c)
+set(BPF_SHARED ${CMAKE_CURRENT_SOURCE_DIR}/bpf/kwatch_shared.h)
 set(BPF_O ${GENERATED_DIR}/kwatch.bpf.o)
 add_custom_command(
     OUTPUT ${BPF_O}
     COMMAND ${CLANG_EXE} -g -O2 -target bpf -D__TARGET_ARCH_x86 -mcpu=v3 -I${GENERATED_DIR} -I/usr/include/x86_64-linux-gnu -c ${BPF_C} -o ${BPF_O}
-    DEPENDS ${BPF_C} ${VMLINUX_H}
+    DEPENDS ${BPF_C} ${BPF_SHARED} ${VMLINUX_H}
     COMMENT "Compiling BPF program"
     VERBATIM
 )
@@ -85,7 +86,7 @@ list(FILTER SOURCES EXCLUDE REGEX "src/cli/main.cpp")
 
 add_executable(kwatch ${SOURCES} src/cli/main.cpp)
 add_dependencies(kwatch bpf-obj)
-target_include_directories(kwatch PRIVATE ${GENERATED_DIR})
+target_include_directories(kwatch SYSTEM PRIVATE ${GENERATED_DIR})
 target_link_options(kwatch PRIVATE ${LIBBPF_LDFLAGS} ${LIBELF_LDFLAGS} ${ZLIB_LDFLAGS})
 target_link_directories(kwatch PRIVATE ${LIBBPF_LIBRARY_DIRS} ${LIBELF_LIBRARY_DIRS} ${ZLIB_LIBRARY_DIRS})
 target_link_libraries(kwatch PRIVATE ${LIBBPF_LIBRARIES} ${LIBELF_LIBRARIES} ${ZLIB_LIBRARIES} ncurses tinfo)
@@ -93,14 +94,18 @@ target_link_libraries(kwatch PRIVATE ${LIBBPF_LIBRARIES} ${LIBELF_LIBRARIES} ${Z
 file(GLOB_RECURSE TEST_SOURCES "tests/unit/*.cpp")
 add_executable(kwatch_tests ${TEST_SOURCES} ${SOURCES})
 add_dependencies(kwatch_tests bpf-obj)
-target_include_directories(kwatch_tests PRIVATE ${GENERATED_DIR} tests/vendored)
+target_include_directories(kwatch_tests SYSTEM PRIVATE ${GENERATED_DIR})
+target_include_directories(kwatch_tests PRIVATE tests/vendored)
 target_link_options(kwatch_tests PRIVATE ${LIBBPF_LDFLAGS} ${LIBELF_LDFLAGS} ${ZLIB_LDFLAGS})
 target_link_directories(kwatch_tests PRIVATE ${LIBBPF_LIBRARY_DIRS} ${LIBELF_LIBRARY_DIRS} ${ZLIB_LIBRARY_DIRS})
 target_link_libraries(kwatch_tests PRIVATE ${LIBBPF_LIBRARIES} ${LIBELF_LIBRARIES} ${ZLIB_LIBRARIES} ncurses tinfo)
 
 # Fuzzing target (optional, enabled if using clang and -fsanitize=fuzzer)
 if(CMAKE_CXX_COMPILER_ID MATCHES "Clang")
-    add_executable(kwatch_fuzz_parser tests/fuzz/ringbuf_event_parser_fuzz.cpp)
+    add_executable(kwatch_fuzz_parser
+        tests/fuzz/ringbuf_event_parser_fuzz.cpp
+        src/util/ipv4.cpp
+    )
     target_compile_options(kwatch_fuzz_parser PRIVATE -fsanitize=fuzzer)
     target_link_options(kwatch_fuzz_parser PRIVATE -fsanitize=fuzzer)
     target_include_directories(kwatch_fuzz_parser PRIVATE bpf)

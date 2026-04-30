@@ -10,7 +10,7 @@ namespace cli {
 
 int cmd_stats(const GlobalOptions& globals, const std::vector<std::string>& args) {
     (void)globals;
-    if (args.empty()) {
+    if (args.size() != 1) {
         std::fputs("Usage: kwatch stats <iface>\n", stderr);
         return 64;
     }

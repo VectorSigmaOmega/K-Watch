@@ -5,6 +5,6 @@ Streaming every single packet to userspace would overwhelm the system and defeat
 ## The Policy
 1. **First-Packet**: The very first packet of any new 4-tuple flow is ALWAYS sent to userspace.
 2. **Statistical Sampling**: Subsequent packets in the same flow are sampled at a rate of 1-in-N (default N=100).
-3. **Thresholds**: N is configurable via the `--sample-n` internal volatile const.
+3. **Thresholds**: N is configurable via `--sample-n`, which is written into the BPF program's `volatile const __u32 sample_n` before load.
 
 This allows us to maintain a live "Recent Events" log in the TUI without sacrificing performance under high-volume flood scenarios.

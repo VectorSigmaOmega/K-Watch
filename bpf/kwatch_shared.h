@@ -15,6 +15,8 @@ struct kwatch_event {
     unsigned char tcp_flags;
     unsigned char ttl;
     unsigned char action; // 0 = pass, 1 = drop
+    unsigned char icmp_type;
+    unsigned char icmp_code;
 };
 
 // R4.1: Flow tracking keys

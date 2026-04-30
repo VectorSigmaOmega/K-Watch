@@ -25,7 +25,7 @@ static int get_blacklist_fd(const std::string& if_name) {
 
 int cmd_list(const GlobalOptions& globals, const std::vector<std::string>& args) {
     (void)globals;
-    if (args.empty()) {
+    if (args.size() != 1) {
         std::fputs("Usage: kwatch list <iface>\n", stderr);
         return 64;
     }

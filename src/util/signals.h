@@ -1,19 +1,19 @@
 #pragma once
-#include <sys/signalfd.h>
-#include <signal.h>
-#include "result.h"
 #include "fd.h"
+#include "result.h"
+#include <signal.h>
+#include <string>
+#include <sys/signalfd.h>
 
 namespace util {
 
 class SignalHandler {
     UniqueFd sfd;
 
-public:
+  public:
     SignalHandler() = default;
-    
-    // Initializes signalfd for SIGINT and SIGTERM.
-    // Also sets up a minimal emergency handler for SIGSEGV/SIGABRT/SIGILL/SIGFPE.
+
+    // Initializes signalfd for termination and externally delivered crash signals.
     Result<void> init();
 
     int get_fd() const { return sfd.get(); }
@@ -21,8 +21,7 @@ public:
     // Reads the signal from the fd and returns it.
     int read_signal();
 
-    // Static cleanup for crash handler (minimal possible work)
-    static void set_emergency_iface(const std::string& iface, int ifindex);
+    static void set_emergency_iface(const std::string &iface, int ifindex);
 };
 
 } // namespace util

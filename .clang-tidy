@@ -1,4 +1,4 @@
-Checks: '-*,bugprone-*,cert-*,clang-analyzer-*,performance-*,readability-*'
-WarningsAsErrors: ''
+Checks: '-*,bugprone-*,cert-*,clang-analyzer-*,performance-*,readability-*,-bugprone-easily-swappable-parameters,-clang-analyzer-unix.Malloc,-readability-braces-around-statements,-readability-function-cognitive-complexity,-readability-identifier-length,-readability-implicit-bool-conversion,-readability-magic-numbers'
+WarningsAsErrors: '*'
 HeaderFilterRegex: ''
 FormatStyle: none

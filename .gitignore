@@ -12,3 +12,4 @@ vmlinux.h
 include/generated/
 .idea/
 .vscode/kwatch_out.log
+.gitnexus

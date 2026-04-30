@@ -6,12 +6,20 @@ set -e
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 BIN="$SCRIPT_DIR/../../build/kwatch"
+TMPDIR="$(mktemp -d /tmp/kwatch-permission.XXXXXX)"
+trap 'rm -rf "$TMPDIR"' EXIT
+TEST_BIN="$TMPDIR/kwatch"
 
 echo "[*] Running as unprivileged user (nobody)..."
 
+# nobody cannot necessarily traverse the developer workspace under /home.
+chmod 755 "$TMPDIR"
+cp "$BIN" "$TEST_BIN"
+chmod 755 "$TEST_BIN"
+
 # Use sudo -u nobody to simulate unprivileged execution.
 # Note: redirection of stderr to capture the capability message.
-OUT=$(sudo -u nobody $BIN run lo 2>&1 || echo "EXIT_CODE:$?")
+OUT=$(sudo -u nobody "$TEST_BIN" run lo 2>&1 || echo "EXIT_CODE:$?")
 
 if echo "$OUT" | grep -q "EXIT_CODE:77"; then
     echo "[+] Exit code 77 confirmed."

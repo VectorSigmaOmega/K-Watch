@@ -1,7 +1,7 @@
 #include "attach.h"
 #include "../log/log.h"
-#include <bpf/libbpf.h>
 #include <bpf/bpf.h>
+#include <bpf/libbpf.h>
 #include <linux/if_link.h>
 #include <unistd.h>
 
@@ -9,15 +9,14 @@ namespace bpf {
 
 XdpAttach::XdpAttach(int index) : if_index(index) {}
 
-XdpAttach::~XdpAttach() {
-    detach();
-}
+XdpAttach::~XdpAttach() { detach(); }
 
-XdpAttach::XdpAttach(XdpAttach&& other) noexcept : if_index(other.if_index), link_fd(other.link_fd) {
+XdpAttach::XdpAttach(XdpAttach &&other) noexcept
+    : if_index(other.if_index), link_fd(other.link_fd) {
     other.link_fd = -1;
 }
 
-XdpAttach& XdpAttach::operator=(XdpAttach&& other) noexcept {
+XdpAttach &XdpAttach::operator=(XdpAttach &&other) noexcept {
     if (this != &other) {
         detach();
         if_index = other.if_index;
@@ -39,20 +38,24 @@ void XdpAttach::detach() {
     }
 }
 
-util::Result<std::string> XdpAttach::attach(struct bpf_program* prog, const std::string& requested_mode, int* err_out) {
-    if (err_out) *err_out = 0;
+util::Result<std::string> XdpAttach::attach(struct bpf_program *prog,
+                                            const std::string &requested_mode, int *err_out) {
+    if (err_out)
+        *err_out = 0;
     detach();
 
     int prog_fd = bpf_program__fd(prog);
     if (prog_fd < 0) {
-        if (err_out) *err_out = EINVAL;
+        if (err_out)
+            *err_out = EINVAL;
         return util::Result<std::string>::Err("Invalid BPF program fd");
     }
 
     std::string used_mode;
     int last_err = 0;
-    auto try_mode = [&](__u32 flags, const char* name) -> int {
-        LIBBPF_OPTS(bpf_link_create_opts, opts);
+    auto try_mode = [&](__u32 flags, const char *name) -> int {
+        bpf_link_create_opts opts{};
+        opts.sz = sizeof(opts);
         opts.flags = flags;
         int fd = bpf_link_create(prog_fd, if_index, BPF_XDP, &opts);
         if (fd >= 0) {
@@ -73,13 +76,17 @@ util::Result<std::string> XdpAttach::attach(struct bpf_program* prog, const std:
         fd = try_mode(XDP_FLAGS_HW_MODE, "hw");
     } else {
         fd = try_mode(XDP_FLAGS_DRV_MODE, "drv");
-        if (fd < 0) fd = try_mode(XDP_FLAGS_SKB_MODE, "skb");
-        if (fd < 0) fd = try_mode(0, "generic");
+        if (fd < 0)
+            fd = try_mode(XDP_FLAGS_SKB_MODE, "skb");
+        if (fd < 0)
+            fd = try_mode(0, "generic");
     }
 
     if (fd < 0) {
-        if (err_out) *err_out = last_err;
-        return util::Result<std::string>::Err("Failed to attach XDP in mode=" + requested_mode + ": " + std::string(strerror(last_err)));
+        if (err_out)
+            *err_out = last_err;
+        return util::Result<std::string>::Err("Failed to attach XDP in mode=" + requested_mode +
+                                              ": " + std::string(strerror(last_err)));
     }
 
     link_fd = fd;

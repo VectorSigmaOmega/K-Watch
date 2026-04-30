@@ -11,15 +11,26 @@ void PpsWindow::push(uint64_t pps) {
     if (count < window.size()) count++;
 }
 
-std::vector<uint64_t> PpsWindow::get_snapshot() const {
-    std::vector<uint64_t> result;
-    result.reserve(count);
-    if (count == 0) return result;
+void PpsWindow::copy_snapshot(std::vector<uint64_t>& out) const {
+    out.clear();
+    if (count == 0) return;
 
     size_t start = (count < window.size()) ? 0 : head;
     for (size_t i = 0; i < count; ++i) {
-        result.push_back(window[(start + i) % window.size()]);
+        out.push_back(window[(start + i) % window.size()]);
     }
+}
+
+uint64_t PpsWindow::latest() const {
+    if (count == 0 || window.empty()) return 0;
+    const size_t idx = (head == 0) ? (window.size() - 1) : (head - 1);
+    return window[idx];
+}
+
+std::vector<uint64_t> PpsWindow::get_snapshot() const {
+    std::vector<uint64_t> result;
+    result.reserve(count);
+    copy_snapshot(result);
     return result;
 }
 

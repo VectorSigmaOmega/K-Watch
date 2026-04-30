@@ -7,7 +7,7 @@ Historically, BPF programs were compiled against the specific headers of the tar
 
 ## Implementation
 1. **vmlinux.h**: We do NOT commit `vmlinux.h` to Git. It is generated at build time using `bpftool btf dump`.
-2. **Relocations**: We use `BPF_CORE_READ` macros and `__builtin_preserve_access_index`. 
+2. **Relocations**: We use CO-RE field-existence relocations (`bpf_core_field_exists`) for XDP context compatibility. Packet headers are wire-format data, not kernel structs, so they are parsed with verifier-bounded packet reads rather than `BPF_CORE_READ`.
 3. **Detection**: During `bpf_object__load`, `libbpf` uses the BTF data on the host system (`/sys/kernel/btf/vmlinux`) to rewrite the program's memory offsets to match the running kernel exactly.
 
 This ensures K-Watch remains a stable, single-binary distribution.
