@@ -1,7 +1,5 @@
 # K-Watch: eBPF Kernel Observability Engine
 
-![Demo](docs/media/demo.svg)
-
 K-Watch is a high-performance network engine powered by eBPF/XDP. It injects code directly into the driver layer to monitor and mitigate traffic at line-rate. Unlike traditional tools, K-Watch uses kernel-aggregated state and ring-buffer sampling to provide deep packet visibility with sub-5% CPU overhead. It demonstrates behavioral SYN-flood detection and CIDR-based hardware-offload ready filtering. Designed as a systems engineering showcase, it is not a production WAF or IDS, but a proof of eBPF depth.
 
 ## Architecture
