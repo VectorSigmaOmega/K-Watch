@@ -1,20 +1,23 @@
 #include "tick.h"
+#include <cstdint>
 #include <sys/timerfd.h>
 #include <unistd.h>
-#include <cstdint>
 
 namespace core {
 
 TickTimer::TickTimer() : tfd(-1) {}
 TickTimer::~TickTimer() {
-    if (tfd != -1) close(tfd);
+    if (tfd != -1)
+        close(tfd);
 }
 
 util::Result<void> TickTimer::init(int hz) {
-    if (hz <= 0) return util::Result<void>::Err("Invalid hz");
+    if (hz <= 0)
+        return util::Result<void>::Err("Invalid hz");
 
     tfd = timerfd_create(CLOCK_MONOTONIC, TFD_NONBLOCK | TFD_CLOEXEC);
-    if (tfd == -1) return util::Result<void>::Err("timerfd_create failed");
+    if (tfd == -1)
+        return util::Result<void>::Err("timerfd_create failed");
 
     long long interval_ns = 1000000000LL / hz;
     struct itimerspec its = {};

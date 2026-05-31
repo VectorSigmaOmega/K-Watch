@@ -1,36 +1,37 @@
 # K-Watch Threat Model
 
-K-Watch operates at the intersection of kernel-space packet processing and userspace observation. This document outlines the perceived threats and the mitigation strategies implemented in v1.0.
+K-Watch is a privileged demonstration tool. It loads an XDP program, owns BPF maps, and can drop packets that match the active CIDR blacklist.
 
-## 1. Asset Inventory
-*   **Primary Asset:** Kernel stability and network availability.
-*   **Secondary Asset:** BPF maps containing blacklist and flow state.
-*   **Tertiary Asset:** Userspace dashboard (TUI).
+## Assets
 
-## 2. Trust Boundaries
-*   **Kernel Boundary:** XDP program (privileged) vs. NIC (untrusted input).
-*   **Userspace Boundary:** Daemon (privileged) vs. CLI (standard user).
+- Host network availability.
+- Loaded XDP program and BPF maps.
+- Blacklist contents.
+- Terminal/log output used by the operator.
 
-## 3. Threat Analysis
+## In Scope
 
-### T1: Denial of Service (DoS) via Map Exhaustion
-*   **Vector:** A flood of unique source IPs filling the `flow_state` map.
-*   **Mitigation:** `flow_state` is implemented as an `LRU_HASH` (R4.4). The kernel automatically evicts the oldest flows to make room for new ones, ensuring the tool remains responsive under massive flow storms.
+- Malformed or hostile network packets reaching the XDP parser.
+- Accidental broad CIDR blacklist entries.
+- Resource leaks that leave XDP attached after `kwatch run` exits.
+- Permission failures when the binary is run without the required capabilities.
+- Demo traffic accidentally targeting non-loopback addresses.
 
-### T2: False Positive Auto-Blocking
-*   **Vector:** Spoofed traffic tricking the SYN-flood detector into blocking legitimate users.
-*   **Mitigation:**
-    *   `--auto-block` defaults to **OFF** (R4.3).
-    *   Thresholds (SYN/ACK ratio) are configurable (R4.2).
-    *   Auto-blocks have a mandatory TTL (R4.5) to ensure accidental blocks are temporary.
+## Out of Scope
 
-### T3: Resource Leaks in Kernel
-*   **Vector:** K-Watch crashes and leaves the XDP program attached, preventing other tools from binding or causing "orphan" packet processing.
-*   **Mitigation:** Mandatory use of `bpf_link` (R3.3). The kernel automatically detaches the program when the userspace file descriptor closes.
+- Kernel vulnerabilities.
+- Malicious root users.
+- Persistent policy storage.
+- Production intrusion detection or automatic mitigation.
+- Traffic generation for benchmarking or stress testing arbitrary networks.
 
-### T4: Privilege Escalation
-*   **Vector:** Malicious user injecting entries into the BPF map via the CLI.
-*   **Mitigation:** Standard Linux permissions apply to the BPF filesystem (`/sys/fs/bpf/kwatch_*`). Only users with `CAP_BPF` or `root` can modify the maps.
+## Defenses
 
-## 4. Safety Summary
-K-Watch is designed as a *demonstration* tool. It prioritizes system safety (RAII, `bpf_link`) and visibility over production-grade hardening. It should not be used as the sole defense for a mission-critical network.
+- The blacklist is explicit operator-controlled state, not automatic policy.
+- CIDR matching uses an LPM trie with bounded entries.
+- The XDP link and BPF resources are owned by C++ RAII wrappers.
+- Permission failures should exit 77 and name the needed privilege.
+- Demo traffic refuses non-loopback targets unless the operator passes an explicit override.
+- `detach` is idempotent so recovery is simple if an operator wants to remove any XDP program from an interface.
+
+K-Watch is suitable as a systems-programming portfolio project. It should not be deployed as the sole protection for a production network.

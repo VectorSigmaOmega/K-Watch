@@ -5,7 +5,8 @@ namespace core {
 
 class TickTimer {
     int tfd;
-public:
+
+  public:
     TickTimer();
     ~TickTimer();
 

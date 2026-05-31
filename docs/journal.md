@@ -1,56 +1,16 @@
-# Engineering Journal: Building K-Watch
+# Project Journal
 
-Welcome! If you're reading this, you are likely a junior developer interested in systems engineering, eBPF, and how to structure a C++ project that interacts deeply with the Linux kernel. This journal documents the thought processes, challenges, and engineering principles applied while building K-Watch.
+This journal is intentionally short after the 2026-04-30 scope reset.
 
-... (previous content) ...
+Earlier drafts tried to make K-Watch a larger product: TUI, SYN-flood detection, auto-blocking, performance claims, fuzzing, coverage, and broader CI. That made reviews behave like whack-a-mole because every optional surface became another required acceptance gate.
 
-## Principle 6: Polish and the "Audience Split"
-In **Milestone 6 (M6): Polish and Documentation**, we finalized the project for two different audiences.
+The current direction is narrower:
 
-**The Problem:** Conflating your audience is a common mistake. Recruiters (Audience A) want high-level proof of life (gifs, diagrams, clear "What is this?"). Engineers (Audience B) want to see the code structure, the test coverage, and the design decisions.
+- Finish the core XDP/libbpf CLI.
+- Keep ICMP and UDP loopback demos as the required proof traffic.
+- Keep generated BPF artifacts out of git.
+- Make map lifecycle and exit codes correct.
+- Prove the required behavior with unit and privileged integration tests.
+- Treat TUI, behavioral detection, and benchmarks as future enhancements.
 
-**The Fix:**
-1. **Visual Proof**: We created placeholders for `asciinema` recordings. These show the tool in action without requiring the recruiter to have a Linux kernel environment.
-2. **Design Docs**: We wrote 5+ design notes (`docs/design/*.md`). This shows Audience B that we didn't just copy-paste code; we made intentional choices about CO-RE, sampling policies, and XDP attach logic.
-3. **Rigorous Testing**: We didn't just write "happy path" tests. We wrote integration tests that use Linux Network Namespaces (`netns`) and Virtual Ethernet (`veth`) pairs to simulate real network traffic in a sandbox.
-4. **Fuzzing**: We added a libFuzzer target to prove that our userspace event parser can handle corrupted or malicious data from the kernel (even though we trust the kernel, systems engineers always verify).
-
-**Final Lesson:** A great project is 50% code and 50% how you communicate that code. By keeping the binary focused (Single C++ binary) and the documentation deep, we prove both technical skill and engineering judgment.
-
-## Principle 7: The Final 10% & Real-Time Visualization
-In the final phase of building K-Watch, we moved from a "headless" background tool to a real-time interactive system. This is where most projects fail—the data is there, but the user (or reviewer) can't see it without complex commands.
-
-**The Problem:** Our TUI (Terminal User Interface) was originally just a skeleton. It showed a sparkline, but the "Threat Matrix" and "Firewall" views were empty placeholders. To prove the behavioral detection worked, the user needs to see the SYN counts climbing and the status flipping to "BLOCKED" in real-time.
-
-**The Fix:**
-1. **State Exposure:** We modified the `FlowTracker` to expose its internal IP-tracking map via a `get_snapshot()` method. This allows the TUI to iterate over the same data that the auto-blocker uses.
-2. **BPF Map Iteration in Userspace:** We implemented a generic iteration loop using `bpf_map_get_next_key`. This is a classic BPF pattern: the kernel is constantly updating a map, and userspace "walks" that map every 500ms to build the TUI table. We have to be careful here: the map can change *while* we are walking it, so we use a robust "start from key zero" approach.
-3. **CI-Driven Quality:** We integrated `gcovr` to track exactly which lines of code our tests were hitting. We hit ~55% coverage—close to our 60% goal. To reach 100%, we'd need to mock the BPF syscalls themselves, which is a great "Next Step" for a production tool.
-
-**Lesson:** Visibility is the best form of validation. A tool that *shows* you an attack being blocked is 10x more valuable than a tool that just logs it to a file. By wiring the BPF maps directly into a dynamic ncurses table, we closed the loop between kernel-level events and human-level observation.
-
-## Principle 8: Defensive Systems Programming & Kernel Lifecycle Management
-In the final audit, we addressed the most critical part of systems engineering: what happens when things go wrong?
-
-**The Problem:** Originally, K-Watch relied on a `sigaction` handler to clean up the XDP program on exit. If the process was killed with `SIGKILL` or crashed with a double-fault, the XDP program stayed in the kernel, requiring manual cleanup. In systems programming, "hope is not a strategy."
-
-**The Fix:**
-1. **Kernel-Managed Lifecycle:** We moved from legacy XDP attachment to `bpf_link`. This is a massive shift: the BPF program is now owned by a file descriptor. If the userspace process dies for *any* reason—a crash, a kill, or a bug—the kernel sees the FD close and automatically detaches the program. We replaced "buggy cleanup code" with "kernel-level guarantees."
-2. **True RAII:** We implemented `util::UniqueFd`. In C++, `goto cleanup` is a red flag. By wrapping every file descriptor (Maps, Programs, Links, Epoll, TimerFD) in an RAII container, we made resource leaks physically impossible. 
-3. **Synchronous Signal Handling:** We replaced asynchronous signal handlers (which are notoriously dangerous and limited in what they can call) with `signalfd(2)`. Signals are now just another event in our `epoll` loop, making our shutdown path deterministic and safe.
-4. **Emergency Terminal Restoration:** For the TUI, we added an emergency handler whose *only* job is to call `endwin()` and re-raise the signal. This ensures that even if the app crashes, it doesn't leave your terminal in a broken state.
-
-**Lesson:** Senior engineering is about managing the failure modes. By moving the "source of truth" for the program's lifecycle into the kernel (via `bpf_link`) and using strict RAII in userspace, we transformed K-Watch from a fragile demo into a robust system tool.
-
-## Principle 9: Closing the Functional Loop (The v1.0 Standard)
-In the final verification phase, we moved from "structurally safe" to "functionally complete." This is the difference between a project that looks like code and a project that *is* a system.
-
-**The Problem:** We had a clean, modular architecture with RAII and `bpf_link`, but the actual logic was thin. The demo scenarios didn't actually send packets, the TUI had race conditions when launching threads, and our `FlowTracker` wasn't emitting the specific logs that our own integration tests were looking for. 
-
-**The Fix:**
-1. **Verifying the Dataplane**: We refactored the raw-socket traffic generators. We discovered that loopback traffic requires careful source-IP handling (using `127.0.0.1`) otherwise the kernel stack drops it before XDP even sees it. We didn't stop until `kwatch demo` caused a visible spike in the dashboard.
-2. **Concurrency Safety**: We added `std::mutex` and `std::thread` management to the TUI. By allowing the user to launch a SYN-flood demo *inside* the app, we created a multithreaded environment where one thread mutates state and another renders it. Using a mutex ensured we didn't crash during a render.
-3. **Honoring the Test Contract**: We updated the `FlowTracker` to emit the exact strings required by the integration bash scripts. Tests are not just "checks"—they are specifications. If a test looks for "SYN_FLOOD detected," the code must speak that language.
-4. **Deep Diagnostics**: We implemented a `libbpf` log-capture callback. Now, if a CO-RE relocation fails, K-Watch doesn't just say "Error"; it tells you exactly which kernel field it couldn't find.
-
-**Final Lesson:** A senior engineer doesn't hand over "stubs." True completion means the loop is closed: the code handles the data, the TUI shows the data, and the tests verify the data. K-Watch v1.0 is now a verified, functional, and safety-guaranteed systems tool.
+The success criterion is no longer "all impressive ideas are implemented." It is "the required low-level tool is correct, buildable, documented, and easy for a Linux networking reviewer to trust."

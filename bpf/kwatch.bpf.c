@@ -81,8 +81,7 @@ static __always_inline void inc_ringbuf_drop(void) {
 // Helper to emit sampled events including the action (pass/drop)
 static __always_inline void emit_event(void *l4_ptr, void *data_end, __u32 src, __u32 dst,
                                        __u8 proto, __u8 ttl, __u8 action, bool is_new) {
-    __u32 n = sample_n;
-    if (!is_new && n > 1 && (bpf_get_prandom_u32() % n != 0))
+    if (!kwatch_should_emit_event(sample_n, bpf_get_prandom_u32(), is_new))
         return;
 
     struct kwatch_event *e = bpf_ringbuf_reserve(&events, sizeof(*e), 0);

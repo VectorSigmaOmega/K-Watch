@@ -21,14 +21,10 @@ inline util::Result<void> validate_target(const std::string &ip, bool override_s
     const bool valid_ipv4 = inet_pton(AF_INET, ip.c_str(), &ipv4) == 1;
     const bool is_ipv4_loopback = valid_ipv4 && ((ntohl(ipv4.s_addr) & 0xff000000U) == 0x7f000000U);
 
-    struct in6_addr ipv6 {};
-    const bool is_ipv6_loopback =
-        inet_pton(AF_INET6, ip.c_str(), &ipv6) == 1 && IN6_IS_ADDR_LOOPBACK(&ipv6);
-
-    if (!valid_ipv4 && !is_ipv6_loopback) {
-        return util::Result<void>::Err("Invalid target address " + ip);
+    if (!valid_ipv4) {
+        return util::Result<void>::Err("Invalid IPv4 target address " + ip);
     }
-    if (!is_ipv4_loopback && !is_ipv6_loopback && !override_safety) {
+    if (!is_ipv4_loopback && !override_safety) {
         return util::Result<void>::Err("Refusing to target non-loopback address " + ip +
                                        " without --i-know-what-im-doing");
     }

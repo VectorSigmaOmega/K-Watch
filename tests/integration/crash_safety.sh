@@ -19,14 +19,19 @@ if ! ip link show $IFACE | grep -q "xdp"; then
     exit 1
 fi
 
-echo "[*] Killing process with SIGSEGV..."
-kill -SEGV $PID
+echo "[*] Killing process with SIGKILL..."
+kill -KILL $PID
 wait $PID 2>/dev/null || true
 
 if ip link show $IFACE | grep -q "xdp"; then
-    echo "[-] XDP remained attached after SIGSEGV!"
+    echo "[-] XDP remained attached after SIGKILL!"
     exit 1
 fi
 
-echo "[+] attach_detach.sh PASS"
+if $BIN stats $IFACE > /dev/null 2>&1; then
+    echo "[-] stats still succeeded after abrupt process death"
+    exit 1
+fi
+
+echo "[+] crash_safety.sh PASS"
 exit 0

@@ -10,6 +10,7 @@ namespace bpf {
 class Skeleton {
     struct kwatch_bpf *skel;
     std::string pinned_path;
+    std::string owner_pid_path;
 
     Skeleton(struct kwatch_bpf *s);
 
@@ -30,7 +31,7 @@ class Skeleton {
     static util::Result<std::unique_ptr<Skeleton>>
     open_and_load(int *err_out = nullptr, uint32_t sample_n = 100, uint32_t syn_window_s = 10);
 
-    util::Result<void> pin(const std::string &path);
+    util::Result<void> pin(const std::string &path, const std::string &owner_pid_file);
     void unpin(const std::string &path);
 
     struct kwatch_bpf *get() const { return skel; }

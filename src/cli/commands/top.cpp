@@ -13,6 +13,7 @@
 #include <net/if.h>
 
 #include "../../bpf/attach.h"
+#include "../../bpf/pin_state.h"
 #include "../../bpf/ringbuf.h"
 #include "../../bpf/skeleton.h"
 #include "../../core/flow_snapshot.h"
@@ -159,8 +160,9 @@ int cmd_top(const GlobalOptions &globals, const std::vector<std::string> &args) 
     }
     auto skel = std::move(skel_res.value());
 
-    const std::string pin_path = "/sys/fs/bpf/kwatch_" + if_name;
-    if (!skel->pin(pin_path).is_ok()) {
+    const std::string pin_path = bpf::pin_path_for_iface(if_name);
+    const std::string owner_pid_path = bpf::owner_pid_path_for_iface(if_name);
+    if (!skel->pin(pin_path, owner_pid_path).is_ok()) {
         return 69;
     }
 

@@ -50,12 +50,21 @@ util::Result<void> run_syn_flood(const DemoConfig &cfg) {
 
     util::UniqueFd sock(socket(AF_INET, SOCK_RAW, IPPROTO_TCP));
     if (!sock.is_valid()) {
-        return util::Result<void>::Err("Failed to create raw socket (are you root?)");
+        if (errno == EPERM || errno == EACCES) {
+            return util::Result<void>::Err(
+                "Permission denied creating raw TCP socket. Need root or CAP_NET_RAW.");
+        }
+        return util::Result<void>::Err("Failed to create raw TCP socket: " +
+                                       std::string(std::strerror(errno)));
     }
 
     int one = 1;
     const int *val = &one;
     if (setsockopt(sock, IPPROTO_IP, IP_HDRINCL, val, sizeof(one)) < 0) {
+        if (errno == EPERM || errno == EACCES) {
+            return util::Result<void>::Err(
+                "Permission denied enabling IP_HDRINCL. Need root or CAP_NET_RAW.");
+        }
         return util::Result<void>::Err("Failed to set IP_HDRINCL");
     }
 

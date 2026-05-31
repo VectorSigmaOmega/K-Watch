@@ -37,5 +37,24 @@ else
     exit 1
 fi
 
+echo "[*] Running demo as unprivileged user (nobody)..."
+OUT_DEMO=$(sudo -u nobody "$TEST_BIN" demo ping-flood --target 127.0.0.1 --duration 1s --rate 1 2>&1 || echo "EXIT_CODE:$?")
+
+if echo "$OUT_DEMO" | grep -q "EXIT_CODE:77"; then
+    echo "[+] Demo exit code 77 confirmed."
+else
+    echo "[-] Wrong demo exit code or no exit code found."
+    echo "Output: $OUT_DEMO"
+    exit 1
+fi
+
+if echo "$OUT_DEMO" | grep -qiE "CAP_NET_RAW|root"; then
+    echo "[+] Demo permission message named required privilege."
+else
+    echo "[-] Demo permission message did not name required privilege."
+    echo "Output: $OUT_DEMO"
+    exit 1
+fi
+
 echo "[+] permission_errors.sh PASS"
 exit 0

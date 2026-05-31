@@ -1,13 +1,11 @@
 #include "../../bpf/attach.h"
+#include "../../bpf/pin_state.h"
 #include "../../bpf/ringbuf.h"
 #include "../../bpf/skeleton.h"
 #include "../../core/event_formatter.h"
-#include "../../core/flow_snapshot.h"
-#include "../../core/flow_tracker.h"
 #include "../../core/tick.h"
 #include "../../log/log.h"
 #include "../../util/fd.h"
-#include "../../util/ipv4.h"
 #include "../../util/signals.h"
 #include "../parser.h"
 #include <bpf/bpf.h>
@@ -21,10 +19,18 @@
 
 namespace cli {
 
+namespace {
+
+constexpr uint32_t kDefaultSynWindowSeconds = 10;
+
+#ifdef KWATCH_WITH_EXPERIMENTAL
 struct lpm_key {
     uint32_t prefixlen;
     uint32_t data;
 };
+#endif
+
+} // namespace
 
 static std::string get_rfc3339_time() {
     auto now = std::chrono::system_clock::now();
@@ -34,12 +40,6 @@ static std::string get_rfc3339_time() {
     gmtime_r(&in_time_t, &tm_buf);
     std::strftime(buf, sizeof(buf), "%Y-%m-%dT%H:%M:%SZ", &tm_buf);
     return std::string(buf);
-}
-
-static uint64_t get_time_ns() {
-    struct timespec ts;
-    clock_gettime(CLOCK_MONOTONIC, &ts);
-    return static_cast<uint64_t>(ts.tv_sec) * 1000000000ULL + static_cast<uint64_t>(ts.tv_nsec);
 }
 
 int cmd_run(const GlobalOptions &globals, const std::vector<std::string> &args) {
@@ -56,7 +56,8 @@ int cmd_run(const GlobalOptions &globals, const std::vector<std::string> &args) 
     }
 
     int load_err = 0;
-    auto skel_res = bpf::Skeleton::open_and_load(&load_err, globals.sample_n, globals.syn_window);
+    auto skel_res =
+        bpf::Skeleton::open_and_load(&load_err, globals.sample_n, kDefaultSynWindowSeconds);
     if (!skel_res.is_ok()) {
         // R3.8: distinguish permission errors from other kernel-feature failures.
         if (load_err == EPERM || load_err == EACCES) {
@@ -72,8 +73,9 @@ int cmd_run(const GlobalOptions &globals, const std::vector<std::string> &args) 
     }
     auto skel = std::move(skel_res.value());
 
-    std::string pin_path = "/sys/fs/bpf/kwatch_" + if_name;
-    if (!skel->pin(pin_path).is_ok()) {
+    std::string pin_path = bpf::pin_path_for_iface(if_name);
+    std::string owner_pid_path = bpf::owner_pid_path_for_iface(if_name);
+    if (!skel->pin(pin_path, owner_pid_path).is_ok()) {
         return 69;
     }
 
@@ -99,13 +101,8 @@ int cmd_run(const GlobalOptions &globals, const std::vector<std::string> &args) 
     if (!tick.init(2).is_ok())
         return 125; // 2 Hz
 
-    core::FlowTracker tracker(globals.syn_threshold, globals.syn_window, globals.auto_block,
-                              globals.auto_block_ttl);
-    core::FlowStateSnapshot flow_snapshot;
-
     bpf::RingBuf ringbuf;
-    auto rb_cb = [&globals, &tracker](const kwatch_event &e) {
-        tracker.process_event(e);
+    auto rb_cb = [&globals](const kwatch_event &e) {
         const auto line = core::format_event(
             e, globals.json ? core::EventOutputFormat::Json : core::EventOutputFormat::Text,
             get_rfc3339_time());
@@ -131,8 +128,6 @@ int cmd_run(const GlobalOptions &globals, const std::vector<std::string> &args) 
 
     LOG_INFO("run", "Running on " + if_name + ". Press Ctrl+C to stop.");
 
-    int blacklist_fd = bpf_map__fd(skel->get()->maps.blacklist);
-    int flow_state_fd = bpf_map__fd(skel->get()->maps.flow_state);
     bool running = true;
 
     while (running) {
@@ -151,39 +146,10 @@ int cmd_run(const GlobalOptions &globals, const std::vector<std::string> &args) 
                     running = false;
                     break;
                 }
-                if (sig == SIGSEGV || sig == SIGABRT || sig == SIGILL || sig == SIGFPE) {
-                    LOG_ERROR("run", "Crash signal received, exiting through RAII cleanup");
-                    running = false;
-                    break;
-                }
             } else if (ep_events[i].data.fd == ringbuf.get_fd()) {
                 ringbuf.consume(1024);
             } else if (ep_events[i].data.fd == tick.get_fd()) {
                 tick.consume();
-
-                uint64_t now_ns = get_time_ns();
-                auto snapshot_res = flow_snapshot.refresh(flow_state_fd);
-                if (snapshot_res.is_ok()) {
-                    tracker.process_flow_snapshot(flow_snapshot.entries(), now_ns);
-                } else {
-                    LOG_WARN("run", snapshot_res.error());
-                }
-
-                const auto &to_block = tracker.tick_and_get_blocks(now_ns);
-                const auto &to_unblock = tracker.get_expired_blocks(now_ns);
-
-                for (uint32_t ip : to_block) {
-                    struct lpm_key key = {32, ip};
-                    uint8_t val = 1;
-                    bpf_map_update_elem(blacklist_fd, &key, &val, BPF_ANY);
-                    LOG_WARN("run", "Auto-blocked IP: " + util::ipv4::format(ip));
-                }
-
-                for (uint32_t ip : to_unblock) {
-                    struct lpm_key key = {32, ip};
-                    bpf_map_delete_elem(blacklist_fd, &key);
-                    LOG_INFO("run", "Auto-unblocked IP: " + util::ipv4::format(ip));
-                }
             }
         }
     }

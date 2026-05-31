@@ -7,6 +7,11 @@
 
 namespace cli {
 
+static bool is_permission_error(const std::string &message) {
+    return message.find("Permission denied") != std::string::npos ||
+           message.find("CAP_NET_RAW") != std::string::npos;
+}
+
 static util::Result<uint32_t> parse_u32_option(const std::string &option, const std::string &value,
                                                const std::string &suffix = "") {
     std::string digits = value;
@@ -76,7 +81,7 @@ int cmd_demo(const GlobalOptions &globals, const std::vector<std::string> &args)
     (void)globals;
     if (args.empty()) {
         std::fputs("Usage: kwatch demo <scenario> [OPTIONS]\n"
-                   "Scenarios: syn-flood, ping-flood, udp-storm\n",
+                   "Scenarios: ping-flood, udp-storm\n",
                    stderr);
         return 64;
     }
@@ -154,12 +159,14 @@ int cmd_demo(const GlobalOptions &globals, const std::vector<std::string> &args)
     }
 
     util::Result<void> res = util::Result<void>::Ok();
-    if (scenario == "syn-flood")
-        res = demo::run_syn_flood(cfg);
-    else if (scenario == "ping-flood")
+    if (scenario == "ping-flood")
         res = demo::run_ping_flood(cfg);
     else if (scenario == "udp-storm")
         res = demo::run_udp_storm(cfg);
+#ifdef KWATCH_WITH_EXPERIMENTAL
+    else if (scenario == "syn-flood")
+        res = demo::run_syn_flood(cfg);
+#endif
     else {
         LOG_ERROR("demo", "Unknown scenario: " + scenario);
         return 64;
@@ -167,6 +174,9 @@ int cmd_demo(const GlobalOptions &globals, const std::vector<std::string> &args)
 
     if (!res.is_ok()) {
         LOG_ERROR("demo", "Demo failed: " + res.error());
+        if (is_permission_error(res.error())) {
+            return 77;
+        }
         return 125;
     }
 

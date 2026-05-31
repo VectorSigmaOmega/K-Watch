@@ -12,10 +12,6 @@ Result<void> SignalHandler::init() {
     sigemptyset(&mask);
     sigaddset(&mask, SIGINT);
     sigaddset(&mask, SIGTERM);
-    sigaddset(&mask, SIGSEGV);
-    sigaddset(&mask, SIGABRT);
-    sigaddset(&mask, SIGILL);
-    sigaddset(&mask, SIGFPE);
 
     if (sigprocmask(SIG_BLOCK, &mask, NULL) == -1) {
         return Result<void>::Err("sigprocmask failed");

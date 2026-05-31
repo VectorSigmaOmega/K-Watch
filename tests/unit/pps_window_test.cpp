@@ -1,16 +1,16 @@
-#include "../vendored/doctest.h"
 #include "../../src/core/pps_window.h"
+#include "../vendored/doctest.h"
 
 TEST_CASE("PPS Window Basic") {
     core::PpsWindow win(3);
-    
+
     auto snap1 = win.get_snapshot();
     CHECK(snap1.empty());
     CHECK(win.current_average() == 0);
 
     win.push(10);
     win.push(20);
-    
+
     auto snap2 = win.get_snapshot();
     CHECK(snap2.size() == 2);
     CHECK(snap2[0] == 10);

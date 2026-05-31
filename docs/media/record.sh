@@ -1,47 +1,45 @@
 #!/bin/bash
-# docs/media/record.sh
-# Requires: asciinema, agg (for SVG generation)
+# Optional core-scope demo recorder. Not part of the v1.0 PRD gate.
+# Requires: asciinema, agg (for SVG generation).
 
-set -e
+set -euo pipefail
 
-if ! command -v asciinema &> /dev/null; then
+if ! command -v asciinema >/dev/null 2>&1; then
     echo "Error: asciinema not found."
     exit 1
 fi
 
-echo "[*] Recording main demo cast..."
-TEMP_CAST=$(mktemp).cast
-
-# Record the sequence. We run the ENTIRE sequence under a single bash -c.
-# R6.2 Story: (a) kwatch run lo --json; (b) trigger syn-flood demo; (c) cut to top lo.
-# Note: we use timeout to keep the recording length (R6.2: 25-45s).
-# We use sudo here so the internal commands don't prompt for passwords.
-sudo asciinema rec $TEMP_CAST --command "bash -c '
-    echo \"[Phase 1] Starting kwatch run --json (Audience B view)...\"
-    ./build/kwatch run lo --json & 
-    KPID=\$!
-    sleep 3
-    echo \"[Phase 2] Triggering SYN flood demo...\"
-    ./build/kwatch demo syn-flood --rate 50 --duration 2
-    sleep 2
-    kill \$KPID
-    
-    echo \"[Phase 3] Opening Dashboard (kwatch top)...\"
-    timeout 10 ./build/kwatch top lo
-'"
-
-echo "[*] Generating SVG from cast..."
-if command -v agg &> /dev/null; then
-    agg $TEMP_CAST docs/media/demo.svg
-else
-    echo "Warning: agg not found, copying cast to docs/media/demo.cast."
-    cp $TEMP_CAST docs/media/demo.cast
+if [ ! -x ./build/kwatch ]; then
+    echo "Error: ./build/kwatch not found. Run: cmake --build build"
+    exit 1
 fi
 
-# Create a secondary cast for top cycling (R6.5)
-echo "[*] Recording top view cycling..."
-TOP_CAST=$(mktemp).cast
-sudo asciinema rec $TOP_CAST --command "timeout 8 ./build/kwatch top lo"
-cp $TOP_CAST docs/media/top.cast
+temp_cast="$(mktemp).cast"
 
-echo "[+] Done."
+sudo asciinema rec "$temp_cast" --command "bash -c '
+    set -e
+    echo \"[1] Start K-Watch in NDJSON mode\"
+    ./build/kwatch run lo --json &
+    KPID=\$!
+    trap \"kill -TERM \$KPID 2>/dev/null || true; wait \$KPID 2>/dev/null || true\" EXIT
+    sleep 2
+
+    echo \"[2] Generate ICMP proof traffic\"
+    ./build/kwatch demo ping-flood --target 127.0.0.1 --duration 2s --rate 20
+    sleep 1
+
+    echo \"[3] Generate UDP proof traffic\"
+    ./build/kwatch demo udp-storm --target 127.0.0.1 --duration 2s --rate 20
+    sleep 1
+
+    echo \"[4] Snapshot counters\"
+    ./build/kwatch stats lo
+'"
+
+cp "$temp_cast" docs/media/demo.cast
+
+if command -v agg >/dev/null 2>&1; then
+    agg "$temp_cast" docs/media/demo.svg
+else
+    echo "Warning: agg not found; updated docs/media/demo.cast only."
+fi

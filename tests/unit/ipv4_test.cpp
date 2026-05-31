@@ -1,5 +1,5 @@
-#include "../vendored/doctest.h"
 #include "../../src/util/ipv4.h"
+#include "../vendored/doctest.h"
 
 TEST_CASE("IPv4 Parsing") {
     auto res = util::ipv4::parse("192.168.1.1");
@@ -23,6 +23,12 @@ TEST_CASE("CIDR Parsing") {
 
     auto res_invalid = util::ipv4::parse_cidr("10.0.0.0/33");
     CHECK(!res_invalid.is_ok());
+
+    auto res_trailing = util::ipv4::parse_cidr("10.0.0.0/8junk");
+    CHECK(!res_trailing.is_ok());
+
+    auto res_missing_prefix = util::ipv4::parse_cidr("10.0.0.0/");
+    CHECK(!res_missing_prefix.is_ok());
 }
 
 TEST_CASE("IPv4 Formatting") {

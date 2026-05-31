@@ -1,19 +1,20 @@
-#include "demos.h"
-#include <iostream>
-#include <sys/socket.h>
-#include <netinet/in.h>
-#include <arpa/inet.h>
-#include <unistd.h>
-#include <chrono>
-#include <thread>
-#include <cstring>
 #include "../util/fd.h"
+#include "demos.h"
+#include <arpa/inet.h>
+#include <chrono>
+#include <cstring>
+#include <iostream>
+#include <netinet/in.h>
+#include <sys/socket.h>
+#include <thread>
+#include <unistd.h>
 
 namespace demo {
 
-util::Result<void> run_udp_storm(const DemoConfig& cfg) {
+util::Result<void> run_udp_storm(const DemoConfig &cfg) {
     auto valid = validate_target(cfg.target_ip, cfg.override_safety);
-    if (!valid.is_ok()) return valid;
+    if (!valid.is_ok())
+        return valid;
 
     util::UniqueFd sock(socket(AF_INET, SOCK_DGRAM, 0));
     if (!sock.is_valid()) {
@@ -33,11 +34,12 @@ util::Result<void> run_udp_storm(const DemoConfig& cfg) {
 
     while (true) {
         auto now = std::chrono::steady_clock::now();
-        if (std::chrono::duration_cast<std::chrono::seconds>(now - start).count() >= cfg.duration_s) {
+        if (std::chrono::duration_cast<std::chrono::seconds>(now - start).count() >=
+            cfg.duration_s) {
             break;
         }
 
-        sendto(sock, packet, sizeof(packet), 0, (struct sockaddr*)&dest, sizeof(dest));
+        sendto(sock, packet, sizeof(packet), 0, (struct sockaddr *)&dest, sizeof(dest));
         std::this_thread::sleep_for(std::chrono::nanoseconds(sleep_ns));
     }
 

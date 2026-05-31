@@ -1,11 +1,11 @@
-# Makefile wrapper for K-Watch (satisfies R6.7)
+# Makefile wrapper for K-Watch
 
 BUILD_DIR ?= build
 
 all:
 	cmake -B $(BUILD_DIR) && cmake --build $(BUILD_DIR)
 
-# Regenerates asciinema casts and SVGs (R6.7)
+# Optional: regenerate legacy asciinema demo media.
 demo: all
 	@echo "[*] Regenerating demo media..."
 	./docs/media/record.sh

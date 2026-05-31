@@ -17,23 +17,28 @@ void print_help(const std::string &bin_name, Command cmd) {
             "Global options:\n"
             "  --json                  Emit machine-readable NDJSON where applicable\n"
             "  -v, --verbose           Increase log verbosity (repeatable: -vv)\n"
-            "  --xdp-mode <mode>       skb | drv | hw  (default: auto, prefer drv -> skb)\n"
+            "  --xdp-mode <mode>       auto | skb | drv | hw  (default: auto, prefer drv -> skb)\n"
+            "  --sample-n <n>          Ring-buffer sample rate for existing flows (default: "
+            "100)\n"
+#ifdef KWATCH_WITH_EXPERIMENTAL
             "  --syn-threshold <n>     SYN flood threshold (default: 100)\n"
             "  --syn-window <s>        SYN flood window in seconds (default: 10)\n"
             "  --auto-block            Automatically block IPs flagged as SYN_FLOOD (default: "
             "off)\n"
             "  --auto-block-ttl <s>    Auto-block cooldown in seconds (default: 300)\n"
-            "  --sample-n <n>          Ring-buffer sample rate for existing flows (default: "
-            "100)\n\n"
+#endif
+            "\n"
             "Commands:\n"
             "  run     <iface>                  Attach XDP, stream events to stdout (default)\n"
+#ifdef KWATCH_WITH_TUI
             "  top     <iface>                  Attach XDP, open interactive ncurses dashboard\n"
-            "  block   <iface> <ip> [<ip>...]   Add IPs to the blacklist map\n"
-            "  unblock <iface> <ip> [<ip>...]   Remove IPs from the blacklist map\n"
-            "  list    <iface>                  Print current blacklist (one IP per line)\n"
+#endif
+            "  block   <iface> <cidr> [<cidr>...] Add CIDR entries to the blacklist map\n"
+            "  unblock <iface> <cidr> [<cidr>...] Remove CIDR entries from the blacklist map\n"
+            "  list    <iface>                    Print current blacklist (one CIDR per line)\n"
             "  stats   <iface>                  Snapshot of protocol counts (one-shot, exits)\n"
             "  demo    <scenario>               Run a built-in traffic scenario\n"
-            "  detach  <iface>                  Force-detach any XDP program on <iface>\n\n"
+            "  detach  <iface>                  Stop the owning kwatch instance and detach XDP\n\n"
             "Examples:\n"
             "  sudo " +
             bin_name +
@@ -51,6 +56,7 @@ void print_help(const std::string &bin_name, Command cmd) {
               "  Example: sudo " +
               bin_name + " run lo --json | jq\n");
         break;
+#ifdef KWATCH_WITH_TUI
     case Command::Top:
         usage("Usage: " + bin_name +
               " top <iface>\n"
@@ -58,17 +64,18 @@ void print_help(const std::string &bin_name, Command cmd) {
               "  Example: sudo " +
               bin_name + " top lo\n");
         break;
+#endif
     case Command::Block:
         usage("Usage: " + bin_name +
-              " block <iface> <ip/cidr>...\n"
-              "  Add IPs or CIDR ranges to the blacklist.\n"
+              " block <iface> <cidr>...\n"
+              "  Add IPv4 CIDR entries to the blacklist.\n"
               "  Example: sudo " +
               bin_name + " block lo 10.0.0.0/8\n");
         break;
     case Command::Unblock:
         usage("Usage: " + bin_name +
-              " unblock <iface> <ip/cidr>...\n"
-              "  Remove entries from the blacklist.\n"
+              " unblock <iface> <cidr>...\n"
+              "  Remove IPv4 CIDR entries from the blacklist.\n"
               "  Example: sudo " +
               bin_name + " unblock lo 10.0.0.0/8\n");
         break;
@@ -89,14 +96,14 @@ void print_help(const std::string &bin_name, Command cmd) {
     case Command::Demo:
         usage("Usage: " + bin_name +
               " demo <scenario> [--target <ip[:port]>] [--rate <pps>] [--duration <s>]\n"
-              "  Scenarios: syn-flood, ping-flood, udp-storm\n"
+              "  Scenarios: ping-flood, udp-storm\n"
               "  Example: sudo " +
-              bin_name + " demo syn-flood --target 127.0.0.1:80\n");
+              bin_name + " demo ping-flood --target 127.0.0.1 --duration 2s\n");
         break;
     case Command::Detach:
         usage("Usage: " + bin_name +
               " detach <iface>\n"
-              "  Force-detach any XDP program. Idempotent.\n"
+              "  Stop the owning kwatch instance and detach XDP. Idempotent.\n"
               "  Example: sudo " +
               bin_name + " detach lo\n");
         break;
@@ -120,8 +127,10 @@ void print_version() {
 static Command parse_subcommand(const std::string &s) {
     if (s == "run")
         return Command::Run;
+#ifdef KWATCH_WITH_TUI
     if (s == "top")
         return Command::Top;
+#endif
     if (s == "block")
         return Command::Block;
     if (s == "unblock")
@@ -135,6 +144,10 @@ static Command parse_subcommand(const std::string &s) {
     if (s == "detach")
         return Command::Detach;
     return Command::None;
+}
+
+static bool is_valid_xdp_mode(const std::string &mode) {
+    return mode == "auto" || mode == "skb" || mode == "drv" || mode == "hw";
 }
 
 static util::Result<uint32_t> parse_u32_arg(const std::string &option, const std::string &value) {
@@ -170,8 +183,27 @@ static util::Result<bool> try_parse_global_option(int argc, char **argv, int &i,
             return util::Result<bool>::Err("--xdp-mode requires an argument");
         }
         parsed.globals.xdp_mode = argv[++i];
+        if (!is_valid_xdp_mode(parsed.globals.xdp_mode)) {
+            return util::Result<bool>::Err("Invalid value for --xdp-mode: " +
+                                           parsed.globals.xdp_mode);
+        }
         return util::Result<bool>::Ok(true);
     }
+    if (arg == "--sample-n") {
+        if (i + 1 >= argc) {
+            return util::Result<bool>::Err("--sample-n requires an argument");
+        }
+        auto parsed_value = parse_u32_arg(arg, argv[++i]);
+        if (!parsed_value.is_ok()) {
+            return util::Result<bool>::Err(parsed_value.error());
+        }
+        if (parsed_value.value() == 0U) {
+            return util::Result<bool>::Err("--sample-n must be greater than zero");
+        }
+        parsed.globals.sample_n = parsed_value.value();
+        return util::Result<bool>::Ok(true);
+    }
+#ifdef KWATCH_WITH_EXPERIMENTAL
     if (arg == "--syn-threshold") {
         if (i + 1 >= argc) {
             return util::Result<bool>::Err("--syn-threshold requires an argument");
@@ -209,20 +241,7 @@ static util::Result<bool> try_parse_global_option(int argc, char **argv, int &i,
         parsed.globals.auto_block_ttl = parsed_value.value();
         return util::Result<bool>::Ok(true);
     }
-    if (arg == "--sample-n") {
-        if (i + 1 >= argc) {
-            return util::Result<bool>::Err("--sample-n requires an argument");
-        }
-        auto parsed_value = parse_u32_arg(arg, argv[++i]);
-        if (!parsed_value.is_ok()) {
-            return util::Result<bool>::Err(parsed_value.error());
-        }
-        if (parsed_value.value() == 0U) {
-            return util::Result<bool>::Err("--sample-n must be greater than zero");
-        }
-        parsed.globals.sample_n = parsed_value.value();
-        return util::Result<bool>::Ok(true);
-    }
+#endif
     if (arg == "--help" || arg == "-h") {
         if (parsed.cmd == Command::None) {
             Command sub = Command::None;

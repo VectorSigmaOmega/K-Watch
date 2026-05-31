@@ -1,0 +1,47 @@
+name: Privileged Integration
+
+on:
+  workflow_dispatch:
+  pull_request:
+    branches: ["main"]
+    paths:
+      - "src/**"
+      - "bpf/**"
+      - "tests/integration/**"
+      - "scripts/**"
+      - "CMakeLists.txt"
+      - ".github/workflows/privileged-integration.yml"
+
+jobs:
+  privileged-integration:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+          fetch-depth: 0
+
+      - name: Install dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y clang llvm libbpf-dev libelf-dev zlib1g-dev \
+            bpftool pkg-config cmake clang-format ncurses-dev jq
+
+      - name: Configure
+        run: cmake -B build -DCMAKE_EXPORT_COMPILE_COMMANDS=ON
+
+      - name: Build
+        run: cmake --build build
+
+      - name: Privileged Integration Tests
+        run: |
+          sudo ./tests/integration/crash_safety.sh
+          sudo ./tests/integration/detach_idempotent.sh
+          sudo ./tests/integration/no_active_maps.sh
+          sudo ./tests/integration/block_partial_failure.sh
+          sudo ./tests/integration/list_broad_cidr.sh
+          sudo ./tests/integration/stats_basic.sh
+          sudo ./tests/integration/blacklist.sh
+          sudo ./tests/integration/lpm_cidr.sh
+          sudo ./tests/integration/demo_traffic.sh
+          sudo ./tests/integration/permission_errors.sh

@@ -6,12 +6,20 @@ set(CMAKE_CXX_STANDARD_REQUIRED ON)
 
 set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -Wall -Wextra -Wpedantic -Wconversion -Wshadow -Werror -g -O2")
 
+option(KWATCH_BUILD_TUI "Build the optional ncurses TUI command" OFF)
+option(KWATCH_ENABLE_EXPERIMENTAL "Enable experimental SYN/auto-block features" OFF)
+option(KWATCH_BUILD_FUZZ "Build optional fuzz targets" OFF)
+
+if(KWATCH_BUILD_TUI AND NOT KWATCH_ENABLE_EXPERIMENTAL)
+    message(FATAL_ERROR "KWATCH_BUILD_TUI currently requires KWATCH_ENABLE_EXPERIMENTAL=ON.")
+endif()
+
 find_package(PkgConfig REQUIRED)
 pkg_check_modules(LIBBPF REQUIRED libbpf)
 pkg_check_modules(LIBELF REQUIRED libelf)
 pkg_check_modules(ZLIB REQUIRED zlib)
 
-# R3.7: discover bpftool via pkg-config → which → distro-versioned fallback.
+# R2.3: discover bpftool via pkg-config -> which -> distro-versioned fallback.
 execute_process(
     COMMAND pkg-config --variable=bpftool libbpf
     OUTPUT_VARIABLE BPFTOOL_PATH
@@ -81,6 +89,19 @@ add_definitions(-DGIT_SHA="${GIT_SHA}")
 add_definitions(-DPROJECT_VERSION="${PROJECT_VERSION}")
 
 file(GLOB_RECURSE SOURCES "src/*.cpp")
+if(NOT KWATCH_BUILD_TUI)
+    list(FILTER SOURCES EXCLUDE REGEX "src/cli/commands/top.cpp$")
+    list(FILTER SOURCES EXCLUDE REGEX "src/tui/.*")
+else()
+    add_definitions(-DKWATCH_WITH_TUI=1)
+endif()
+if(KWATCH_ENABLE_EXPERIMENTAL)
+    add_definitions(-DKWATCH_WITH_EXPERIMENTAL=1)
+else()
+    list(FILTER SOURCES EXCLUDE REGEX "src/core/flow_tracker.cpp$")
+    list(FILTER SOURCES EXCLUDE REGEX "src/demo/syn_flood.cpp$")
+endif()
+
 # Exclude main from tests
 list(FILTER SOURCES EXCLUDE REGEX "src/cli/main.cpp")
 
@@ -89,19 +110,31 @@ add_dependencies(kwatch bpf-obj)
 target_include_directories(kwatch SYSTEM PRIVATE ${GENERATED_DIR})
 target_link_options(kwatch PRIVATE ${LIBBPF_LDFLAGS} ${LIBELF_LDFLAGS} ${ZLIB_LDFLAGS})
 target_link_directories(kwatch PRIVATE ${LIBBPF_LIBRARY_DIRS} ${LIBELF_LIBRARY_DIRS} ${ZLIB_LIBRARY_DIRS})
-target_link_libraries(kwatch PRIVATE ${LIBBPF_LIBRARIES} ${LIBELF_LIBRARIES} ${ZLIB_LIBRARIES} ncurses tinfo)
+target_link_libraries(kwatch PRIVATE ${LIBBPF_LIBRARIES} ${LIBELF_LIBRARIES} ${ZLIB_LIBRARIES})
+if(KWATCH_BUILD_TUI)
+    target_link_libraries(kwatch PRIVATE ncurses tinfo)
+endif()
 
 file(GLOB_RECURSE TEST_SOURCES "tests/unit/*.cpp")
+if(NOT KWATCH_ENABLE_EXPERIMENTAL)
+    list(FILTER TEST_SOURCES EXCLUDE REGEX "tests/unit/flow_tracker_test.cpp$")
+endif()
 add_executable(kwatch_tests ${TEST_SOURCES} ${SOURCES})
 add_dependencies(kwatch_tests bpf-obj)
 target_include_directories(kwatch_tests SYSTEM PRIVATE ${GENERATED_DIR})
 target_include_directories(kwatch_tests PRIVATE tests/vendored)
 target_link_options(kwatch_tests PRIVATE ${LIBBPF_LDFLAGS} ${LIBELF_LDFLAGS} ${ZLIB_LDFLAGS})
 target_link_directories(kwatch_tests PRIVATE ${LIBBPF_LIBRARY_DIRS} ${LIBELF_LIBRARY_DIRS} ${ZLIB_LIBRARY_DIRS})
-target_link_libraries(kwatch_tests PRIVATE ${LIBBPF_LIBRARIES} ${LIBELF_LIBRARIES} ${ZLIB_LIBRARIES} ncurses tinfo)
+target_link_libraries(kwatch_tests PRIVATE ${LIBBPF_LIBRARIES} ${LIBELF_LIBRARIES} ${ZLIB_LIBRARIES})
+if(KWATCH_BUILD_TUI)
+    target_link_libraries(kwatch_tests PRIVATE ncurses tinfo)
+endif()
 
-# Fuzzing target (optional, enabled if using clang and -fsanitize=fuzzer)
-if(CMAKE_CXX_COMPILER_ID MATCHES "Clang")
+# Fuzzing target (optional, off by default for the portfolio build/test surface)
+if(KWATCH_BUILD_FUZZ)
+    if(NOT CMAKE_CXX_COMPILER_ID MATCHES "Clang")
+        message(FATAL_ERROR "KWATCH_BUILD_FUZZ requires Clang.")
+    endif()
     add_executable(kwatch_fuzz_parser
         tests/fuzz/ringbuf_event_parser_fuzz.cpp
         src/util/ipv4.cpp

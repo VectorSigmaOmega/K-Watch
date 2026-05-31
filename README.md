@@ -1,49 +1,100 @@
-# K-Watch: eBPF Kernel Observability Engine
+# K-Watch
 
-K-Watch is a high-performance network engine powered by eBPF/XDP. It injects code directly into the driver layer to monitor and mitigate traffic at line-rate. Unlike traditional tools, K-Watch uses kernel-aggregated state and ring-buffer sampling to provide deep packet visibility with sub-5% CPU overhead. It demonstrates behavioral SYN-flood detection and CIDR-based hardware-offload ready filtering. Designed as a systems engineering showcase, it is not a production WAF or IDS, but a proof of eBPF depth.
+K-Watch is a small C++20/libbpf XDP tool for observing IPv4 traffic, generating safe loopback demo traffic, and controlling an in-memory CIDR blacklist. It is built as a Linux networking portfolio project: native binary, generated CO-RE artifacts, BPF maps for kernel/userspace state, and RAII ownership of kernel resources. It is not a production IDS, WAF, SIEM, benchmark tool, or persistent firewall.
 
 ## Architecture
-See [docs/architecture.md](docs/architecture.md) for a detailed breakdown.
 
-NIC → XDP (Parser & Filter) → BPF Maps → Ring Buffer → C++ Daemon → CLI/TUI
+See [docs/architecture.md](docs/architecture.md).
+
+NIC -> XDP parser/filter -> BPF maps -> ring buffer -> C++ CLI/demo traffic
 
 ## Quickstart
 
-### 1. Build
+Start the observer on loopback:
+
+```bash
+sudo ./build/kwatch run lo
+```
+
+## Build
+
 ```bash
 cmake -B build
 cmake --build build
 ```
 
-### 2. Run
-Observe live traffic on your loopback interface:
+Emit NDJSON instead of text:
+
 ```bash
-sudo ./build/kwatch run lo
+sudo ./build/kwatch run lo --json
 ```
 
-### 3. Mitigate
-Block an IP or entire range instantly:
+In another terminal, generate bounded loopback traffic:
+
 ```bash
-sudo ./build/kwatch block lo 1.2.3.4/32
+sudo ./build/kwatch demo ping-flood --target 127.0.0.1 --duration 2s
+sudo ./build/kwatch demo udp-storm --target 127.0.0.1 --duration 2s
 ```
 
-## Features
+In another terminal, inspect counters while `run` is active:
 
-- **XDP-Powered**: High-performance packet processing at the driver level.
-- **Behavioral Detection**: Detects SYN floods using SYN/ACK ratio analysis.
-- **Auto-Mitigation**: Automatically blocks malicious IPs with a configurable cooldown.
-- **Single Binary**: No Node.js, Python, or external runtimes. Pure C++20 and libbpf.
-- **Interactive TUI**: Opt-in dashboard via `kwatch top`.
-- **CO-RE**: Portable across different kernel versions without recompilation.
+```bash
+sudo ./build/kwatch stats lo
+```
 
-## Detailed Documentation
+Add and remove CIDR blacklist entries while `run` is active:
 
-- [Architecture & Data Path](docs/architecture.md)
-- [Design: Behavioral Detection](docs/design/behavioral-detection.md)
-- [Design: CO-RE & Portability](docs/design/co-re.md)
-- [Design: XDP Attach Modes](docs/design/xdp-attach-modes.md)
-- [Performance Benchmarks](docs/perf.md)
+```bash
+sudo ./build/kwatch block lo 127.0.0.1/32
+sudo ./build/kwatch list lo
+sudo ./build/kwatch unblock lo 127.0.0.1/32
+```
+
+Detach any XDP program from an interface:
+
+```bash
+sudo ./build/kwatch detach lo
+```
+
+## Core Features
+
+- XDP parser for Ethernet, one VLAN tag, IPv4, TCP, UDP, and ICMP.
+- Count-only sentinel handling for IPv6 and ARP.
+- `pkt_counts` protocol counter map.
+- CIDR-capable `blacklist` map using `BPF_MAP_TYPE_LPM_TRIE`.
+- Sampled packet metadata through a BPF ring buffer.
+- Safe built-in ICMP and UDP loopback demo traffic.
+- C++ RAII wrappers for libbpf skeletons, XDP links, ring buffers, and file descriptors.
+- Generated `vmlinux.h`, BPF object, and skeleton headers.
+- Single native binary; no web UI, Node.js service, or second runtime.
+
+## Verify
+
+```bash
+cmake --build build
+./build/kwatch_tests
+find src bpf tests \( -path 'tests/vendored' -o -path 'tests/vendored/*' \) -prune -o \
+  \( -name '*.cpp' -o -name '*.c' -o -name '*.h' \) -print | \
+  xargs clang-format --Werror --dry-run
+```
+
+Privileged integration tests are under `tests/integration/` and assume Linux with BTF and permissions to create a veth/netns test fixture.
+
+## Documentation
+
+- [Architecture](docs/architecture.md)
 - [Exit Codes](docs/exit-codes.md)
+- [CO-RE Notes](docs/design/co-re.md)
+- [XDP Attach Modes](docs/design/xdp-attach-modes.md)
+- [LPM Blacklist](docs/design/lpm-blacklist.md)
+- [Demo Traffic](docs/design/demo-traffic.md)
+
+## Optional Work
+
+The repository may contain experimental TUI, SYN-flood detection, auto-blocking, fuzzing, or benchmark work. Those are future enhancements and are not required for the focused portfolio scope in [PRD.md](PRD.md).
+
+The default build does not include the ncurses TUI. That remains an optional surface for a separate `-DKWATCH_BUILD_TUI=ON` build.
 
 ## License
+
 MIT

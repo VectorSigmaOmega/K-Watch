@@ -6,7 +6,19 @@
 
 namespace cli {
 
-enum class Command : uint8_t { None, Run, Top, Block, Unblock, List, Stats, Demo, Detach };
+enum class Command : uint8_t {
+    None,
+    Run,
+#ifdef KWATCH_WITH_TUI
+    Top,
+#endif
+    Block,
+    Unblock,
+    List,
+    Stats,
+    Demo,
+    Detach
+};
 
 struct GlobalOptions {
     bool json = false;
@@ -30,7 +42,9 @@ void print_help(const std::string &bin_name, Command cmd = Command::None);
 void print_version();
 
 int cmd_run(const GlobalOptions &globals, const std::vector<std::string> &args);
+#ifdef KWATCH_WITH_TUI
 int cmd_top(const GlobalOptions &globals, const std::vector<std::string> &args);
+#endif
 int cmd_block(const GlobalOptions &globals, const std::vector<std::string> &args);
 int cmd_unblock(const GlobalOptions &globals, const std::vector<std::string> &args);
 int cmd_list(const GlobalOptions &globals, const std::vector<std::string> &args);

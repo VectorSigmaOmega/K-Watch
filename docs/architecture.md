@@ -1,44 +1,58 @@
 # K-Watch Architecture
 
-K-Watch follows a "Thick Kernel, Thin Userspace" design pattern. Most of the high-frequency packet processing happens in the XDP layer, while the userspace process acts as a low-frequency observer and controller.
+K-Watch follows a small "kernel fast path, userspace control path" design. The XDP program performs packet parsing and map updates in kernel space. The C++ process owns the BPF lifecycle, drains sampled events, exposes a narrow CLI for observation and blacklist control, and can generate bounded loopback demo traffic.
 
 ```mermaid
 graph TD
-    subgraph "Kernel Space (XDP/eBPF)"
-        NIC[Network Interface] -->|Packet| XDP[XDP Program]
-        XDP -->|Protocol Counts| MapPkt[pkt_counts HASH]
-        XDP -->|Flow State| MapFlow[flow_state LRU_HASH]
-        XDP -->|Blocklist Check| MapBL[blacklist LPM_TRIE]
-        XDP -->|Sampled Events| RingBuf[events RINGBUF]
-        
-        MapBL -->|Drop/Pass| XDP
+    NIC[Network Interface] -->|packet| XDP[XDP Program]
+
+    subgraph Kernel["Kernel Space"]
+        XDP -->|protocol counters| PktCounts[pkt_counts HASH]
+        XDP -->|CIDR lookup| Blacklist[blacklist LPM_TRIE]
+        XDP -->|sampled packet metadata| Events[events RINGBUF]
+        Blacklist -->|pass/drop decision| XDP
     end
 
-    subgraph "User Space (C++/ncurses)"
-        RingBuf -->|NDJSON/TUI| EventConsumer[Event Consumer]
-        MapPkt -->|2Hz Polling| StatsAggregator[Stats Aggregator]
-        MapFlow -->|Heuristics| BehavioralDetector[Behavioral Detector]
-        BehavioralDetector -->|Auto-Block| MapBL
-        
-        StatsAggregator -->|Deltas| PPSWin[PPS Window]
-        PPSWin -->|Render| TUI[ncurses Dashboard]
-        EventConsumer -->|Log| TUI
-    end
+    subgraph User["User Space - C++/libbpf"]
+        Loader[RAII Loader]
+        RingConsumer[Ring Buffer Consumer]
+        Commands[CLI Commands]
+        Demos[Loopback Demo Traffic]
 
-    CLI[CLI Parser] -->|Attach/Detach| XDP
-    CLI -->|Manual Block| MapBL
+        Loader -->|attach/detach via bpf_link| XDP
+        Demos -->|ICMP/UDP packets| NIC
+        Events --> RingConsumer
+        PktCounts -->|stats command| Commands
+        Blacklist -->|block/unblock/list commands| Commands
+        RingConsumer -->|text or NDJSON| Stdout[stdout]
+    end
 ```
 
-## Key Components
+## Components
 
-### 1. XDP Program (`bpf/kwatch.bpf.c`)
-The high-performance entry point. It parses Ethernet, VLAN, IPv4, TCP, UDP, and ICMP. It performs the LPM Trie lookup for the blacklist and samples new flows into the ring buffer.
+### XDP Program
 
-### 2. Behavioral Detector (`src/core/flow_tracker.cpp`)
-Calculates SYN/ACK ratios and OS heuristics based on the `flow_state` map. It implements the auto-mitigation logic (R4.2).
+`bpf/kwatch.bpf.c` is the kernel entry point. It parses Ethernet, one VLAN tag, IPv4, TCP, UDP, and ICMP. IPv6 and ARP are count-only sentinel paths. The program updates protocol counters, checks the CIDR blacklist, and writes sampled event metadata to the ring buffer.
 
-### 3. TUI (`src/tui/app.cpp`)
-A single-binary interactive dashboard using `ncurses`. It visualizes the kernel state without introducing external dependencies like Node.js or Python.
+### BPF Maps
 
-### 4. RAII Lifecycle (`src/bpf/skeleton.cpp` & `attach.cpp`)
-Uses `bpf_link` to ensure that the kernel automatically detaches the BPF program if the userspace process crashes or is killed, maintaining system stability.
+- `pkt_counts`: protocol counters used by `kwatch stats`.
+- `blacklist`: an `LPM_TRIE` map so `kwatch block` can handle CIDR ranges.
+- `events`: a ring buffer for sampled packet metadata consumed by `kwatch run`.
+- Additional maps may exist for sampling or future analysis, but they are not part of the required architecture contract.
+
+### Userspace Loader
+
+The C++ loader owns the generated libbpf skeleton, XDP link, ring buffer, and file descriptors through RAII wrappers. Attach mode defaults to drv -> skb -> generic fallback, while explicit `--xdp-mode` values skip fallback.
+
+### CLI Boundary
+
+`kwatch run <iface>` is the long-running owner of the active maps. `stats`, `block`, `unblock`, and `list` operate against maps pinned by that running instance. If no active maps exist for the interface, those commands fail cleanly with exit code 65.
+
+### Demo Traffic
+
+`kwatch demo ping-flood` and `kwatch demo udp-storm` provide bounded, loopback-safe proof traffic. They exist so a reviewer can see the XDP path produce events and counters without installing external traffic tools. They are not benchmarks and they are not attack tooling.
+
+## Optional Work
+
+A TUI, behavioral SYN detection, auto-blocking, and performance benchmark suite are future enhancements. They are intentionally outside the required v1.0 portfolio architecture.
