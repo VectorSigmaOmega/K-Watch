@@ -1,5 +1,8 @@
 #include "parser.h"
 #include <bpf/libbpf.h>
+#if __has_include(<bpf/libbpf_version.h>)
+#include <bpf/libbpf_version.h>
+#endif
 #include <cstdint>
 #include <cstdio>
 #include <cstdlib>
@@ -120,8 +123,12 @@ void print_version() {
 #ifndef GIT_SHA
 #define GIT_SHA "unknown"
 #endif
+#if defined(LIBBPF_MAJOR_VERSION) && defined(LIBBPF_MINOR_VERSION)
     (void)std::fprintf(stdout, "kwatch %s (%s) libbpf=%u.%u\n", PROJECT_VERSION, GIT_SHA,
-                       libbpf_major_version(), libbpf_minor_version());
+                       LIBBPF_MAJOR_VERSION, LIBBPF_MINOR_VERSION);
+#else
+    (void)std::fprintf(stdout, "kwatch %s (%s) libbpf=unknown\n", PROJECT_VERSION, GIT_SHA);
+#endif
 }
 
 static Command parse_subcommand(const std::string &s) {
