@@ -34,7 +34,7 @@ class Skeleton {
     util::Result<void> pin(const std::string &path, const std::string &owner_pid_file);
     void unpin(const std::string &path);
 
-    struct kwatch_bpf *get() const { return skel; }
+    kwatch_bpf *get() const { return skel; }
 };
 
 } // namespace bpf
