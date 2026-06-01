@@ -32,6 +32,7 @@ if(NOT BPFTOOL_PATH OR NOT EXISTS "${BPFTOOL_PATH}")
     # Some distros (e.g. Ubuntu) ship bpftool only under linux-tools-<ver>/.
     file(GLOB BPFTOOL_FALLBACK "/usr/lib/linux-tools/*/bpftool")
     if(BPFTOOL_FALLBACK)
+        list(SORT BPFTOOL_FALLBACK ORDER DESCENDING)
         list(GET BPFTOOL_FALLBACK 0 BPFTOOL_PATH)
     endif()
 endif()

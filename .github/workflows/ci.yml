@@ -26,6 +26,9 @@ jobs:
           sudo apt-get install -y clang llvm libbpf-dev libelf-dev zlib1g-dev \
             linux-tools-common linux-tools-generic \
             pkg-config cmake clang-format ncurses-dev jq
+          if [ "${{ matrix.runner }}" = "ubuntu-22.04" ]; then
+            sudo apt-get install -y linux-hwe-6.5-tools-common
+          fi
 
       - name: Check Formatting (N6)
         if: matrix.compiler == 'clang'
