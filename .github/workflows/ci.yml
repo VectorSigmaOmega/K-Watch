@@ -23,7 +23,8 @@ jobs:
         run: |
           sudo apt-get update
           sudo apt-get install -y clang llvm libbpf-dev libelf-dev zlib1g-dev \
-            bpftool pkg-config cmake clang-format ncurses-dev jq
+            linux-tools-common linux-tools-generic \
+            pkg-config cmake clang-format ncurses-dev jq
 
       - name: Check Formatting (N6)
         if: matrix.compiler == 'clang'
