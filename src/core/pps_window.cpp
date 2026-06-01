@@ -2,7 +2,7 @@
 
 namespace core {
 
-PpsWindow::PpsWindow(size_t size) : window(size, 0), head(0), count(0) {}
+PpsWindow::PpsWindow(std::size_t size) : window(size, 0), head(0), count(0) {}
 
 void PpsWindow::push(uint64_t pps) {
     if (window.empty())
@@ -18,8 +18,8 @@ void PpsWindow::copy_snapshot(std::vector<uint64_t> &out) const {
     if (count == 0)
         return;
 
-    size_t start = (count < window.size()) ? 0 : head;
-    for (size_t i = 0; i < count; ++i) {
+    std::size_t start = (count < window.size()) ? 0 : head;
+    for (std::size_t i = 0; i < count; ++i) {
         out.push_back(window[(start + i) % window.size()]);
     }
 }
@@ -27,7 +27,7 @@ void PpsWindow::copy_snapshot(std::vector<uint64_t> &out) const {
 uint64_t PpsWindow::latest() const {
     if (count == 0 || window.empty())
         return 0;
-    const size_t idx = (head == 0) ? (window.size() - 1) : (head - 1);
+    const std::size_t idx = (head == 0) ? (window.size() - 1) : (head - 1);
     return window[idx];
 }
 
@@ -42,7 +42,7 @@ uint64_t PpsWindow::current_average() const {
     if (count == 0)
         return 0;
     uint64_t sum = 0;
-    for (size_t i = 0; i < count; ++i)
+    for (std::size_t i = 0; i < count; ++i)
         sum += window[i];
     return sum / count;
 }

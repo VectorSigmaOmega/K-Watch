@@ -1,4 +1,5 @@
 #pragma once
+#include <cstddef>
 #include <cstdint>
 #include <vector>
 
@@ -6,11 +7,11 @@ namespace core {
 
 class PpsWindow {
     std::vector<uint64_t> window;
-    size_t head;
-    size_t count;
+    std::size_t head;
+    std::size_t count;
 
   public:
-    PpsWindow(size_t size = 60);
+    PpsWindow(std::size_t size = 60);
 
     void push(uint64_t pps);
     void copy_snapshot(std::vector<uint64_t> &out) const;
