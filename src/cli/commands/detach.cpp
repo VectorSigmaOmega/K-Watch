@@ -3,6 +3,9 @@
 #include "../parser.h"
 #include <array>
 #include <bpf/libbpf.h>
+#if __has_include(<bpf/libbpf_version.h>)
+#include <bpf/libbpf_version.h>
+#endif
 #include <cerrno>
 #include <csignal>
 #include <cstdio>
@@ -24,6 +27,14 @@ namespace cli {
 
 static bool is_ignorable_detach_error(int err) {
     return err == EINVAL || err == ENOENT || err == ENODEV || err == EOPNOTSUPP || err == ENOLINK;
+}
+
+static int detach_xdp(int if_index, unsigned int flags) {
+#if defined(LIBBPF_MAJOR_VERSION) && (LIBBPF_MAJOR_VERSION > 0 || LIBBPF_MINOR_VERSION >= 7)
+    return bpf_xdp_detach(if_index, flags, nullptr);
+#else
+    return bpf_set_link_xdp_fd(if_index, -1, flags);
+#endif
 }
 
 static bool wait_for_owner_exit(const bpf::OwnerState &owner, useconds_t timeout_us) {
@@ -129,7 +140,7 @@ int cmd_detach(const GlobalOptions &globals, const std::vector<std::string> &arg
     int first_error = 0;
 
     for (unsigned int flag : flags) {
-        const int ret = bpf_xdp_detach(if_index, flag, NULL);
+        const int ret = detach_xdp(if_index, flag);
         if (ret == 0) {
             detached = true;
             continue;
