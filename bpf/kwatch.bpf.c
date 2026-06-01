@@ -128,8 +128,7 @@ static __always_inline void emit_event(void *l4_ptr, void *data_end, __u32 src, 
 
 SEC("xdp")
 int xdp_kwatch_prog(struct xdp_md *ctx) {
-    if (!bpf_core_field_exists(struct xdp_md, data) ||
-        !bpf_core_field_exists(struct xdp_md, data_end)) {
+    if (!bpf_core_field_exists(ctx->data) || !bpf_core_field_exists(ctx->data_end)) {
         return XDP_ABORTED;
     }
 
